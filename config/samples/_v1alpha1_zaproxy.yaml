@@ -1,0 +1,12 @@
+apiVersion: zaproxy.org/v1alpha1
+kind: ZAProxy
+metadata:
+  labels:
+    app.kubernetes.io/name: zaproxy
+    app.kubernetes.io/instance: zaproxy-sample
+    app.kubernetes.io/part-of: zaproxy-operator
+    app.kubernetes.io/managed-by: kustomize
+    app.kubernetes.io/created-by: zaproxy-operator
+  name: zaproxy-sample
+spec:
+  # TODO(user): Add fields here

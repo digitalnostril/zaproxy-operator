@@ -1,0 +1,27 @@
+# permissions for end users to view zaproxies.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  labels:
+    app.kubernetes.io/name: clusterrole
+    app.kubernetes.io/instance: zaproxy-viewer-role
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: zaproxy-operator
+    app.kubernetes.io/part-of: zaproxy-operator
+    app.kubernetes.io/managed-by: kustomize
+  name: zaproxy-viewer-role
+rules:
+- apiGroups:
+  - zaproxy.org
+  resources:
+  - zaproxies
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - zaproxy.org
+  resources:
+  - zaproxies/status
+  verbs:
+  - get
