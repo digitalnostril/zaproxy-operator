@@ -28,18 +28,33 @@ type ZAProxySpec struct {
 	// INSERT ADDITIONAL SPEC FIELDS - desired state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 
-	// Foo is an example field of ZAProxy. Edit zaproxy_types.go to remove/update
-	Foo string `json:"foo,omitempty"`
+	// The following markers will use OpenAPI v3 schema to validate the value
+	// More info: https://book.kubebuilder.io/reference/markers/crd-validation.html
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=3
+	// +kubebuilder:validation:ExclusiveMaximum=false
+
+	// Size defines the number of Memcached instances
+	// +operator-sdk:csv:customresourcedefinitions:type=spec
+	Size int32 `json:"size,omitempty"`
+
+	// Port defines the port that will be used to init the container with the image
+	// +operator-sdk:csv:customresourcedefinitions:type=spec
+	ContainerPort int32 `json:"containerPort,omitempty"`
 }
 
 // ZAProxyStatus defines the observed state of ZAProxy
 type ZAProxyStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
+
+	// +operator-sdk:csv:customresourcedefinitions:type=status
+	Conditions []metav1.Condition `json:"conditions,omitempty" patchStrategy:"merge" patchMergeKey:"type" protobuf:"bytes,1,rep,name=conditions"`
 }
 
 //+kubebuilder:object:root=true
 //+kubebuilder:subresource:status
+// +operator-sdk:csv:customresourcedefinitions:resources={{Deployment,v1,zaproxy-deployment}}
 
 // ZAProxy is the Schema for the zaproxies API
 type ZAProxy struct {

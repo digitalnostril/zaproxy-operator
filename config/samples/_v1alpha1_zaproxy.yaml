@@ -9,4 +9,5 @@ metadata:
     app.kubernetes.io/created-by: zaproxy-operator
   name: zaproxy-sample
 spec:
-  # TODO(user): Add fields here
+  size: 1
+  containerPort: 8080

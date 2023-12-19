@@ -72,6 +72,9 @@ spec:
         - --leader-elect
         image: controller:latest
         name: manager
+        env:
+        - name: ZAPROXY_IMAGE
+          value: ghcr.io/zaproxy/zaproxy:stable
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:
