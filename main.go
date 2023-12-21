@@ -18,6 +18,7 @@ package main
 
 import (
 	"flag"
+	"net/http"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -28,6 +29,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -89,12 +91,19 @@ func main() {
 		os.Exit(1)
 	}
 
+	// Try registering with the existing webhook server.
+	mgr.GetWebhookServer().Register("/zaptest", &MyHandler{Client: mgr.GetClient()})
+
 	if err = (&controllers.ZAProxyReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
 		Recorder: mgr.GetEventRecorderFor("zaproxy-controller"),
 	}).SetupWithManager(mgr); err != nil {
 		setupLog.Error(err, "unable to create controller", "controller", "ZAProxy")
+		os.Exit(1)
+	}
+	if err = (&zaproxyorgv1alpha1.ZAProxy{}).SetupWebhookWithManager(mgr); err != nil {
+		setupLog.Error(err, "unable to create webhook", "webhook", "ZAProxy")
 		os.Exit(1)
 	}
 	//+kubebuilder:scaffold:builder
@@ -113,4 +122,19 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
+}
+
+type MyHandler struct {
+	Client client.Client
+}
+
+func (h *MyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	_, err := controllers.UpdateDeploy("zaproxy-sample", "default", h.Client)
+	if err != nil {
+
+		setupLog.Error(err, "Failed to update replica count")
+		w.Write([]byte("Failed to update replica count"))
+	}
+	w.Write([]byte("Hello, world!"))
 }

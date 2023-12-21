@@ -46,6 +46,39 @@ const (
 	typeDegradedZAProxy = "Degraded"
 )
 
+func UpdateDeploy(name string, namespace string, c client.Client) (ctrl.Result, error) {
+	ctx := context.TODO()
+	log := log.FromContext(ctx)
+
+	namespacedName := client.ObjectKey{
+		Namespace: namespace,
+		Name:      name,
+	}
+
+	log.Info("Starting things up", "namespace", namespacedName.String())
+	zaproxy := &zaproxyorgv1alpha1.ZAProxy{}
+	err := c.Get(ctx, namespacedName, zaproxy)
+	if err != nil {
+		if apierrors.IsNotFound(err) {
+			log.Info("zaproxy resource not found. Ignoring since object must be deleted")
+			return ctrl.Result{}, nil
+		}
+		log.Error(err, "Failed to get zaproxy")
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Let's try to change the replica count part2")
+
+	result, err := updateReplicas(ctx, namespacedName, c)
+	if err != nil {
+
+		log.Error(err, "Failed to update replica count")
+		return result, err
+	}
+
+	return ctrl.Result{}, nil
+}
+
 // ZAProxyReconciler reconciles a ZAProxy object
 type ZAProxyReconciler struct {
 	client.Client
@@ -189,6 +222,14 @@ func (r *ZAProxyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{Requeue: true}, nil
 	}
 
+	// log.Info("Let's try to change the replica count")
+	// result, err := UpdateDeploy(req, r.Client)
+	// if err != nil {
+
+	// 	log.Error(err, "Failed to update replica count")
+	// 	return result, err
+	// }
+
 	// The following implementation will update the status
 	meta.SetStatusCondition(&zaproxy.Status.Conditions, metav1.Condition{Type: typeAvailableZAProxy,
 		Status: metav1.ConditionTrue, Reason: "Reconciling",
@@ -296,7 +337,7 @@ func (r *ZAProxyReconciler) deploymentForZAProxy(
 							ContainerPort: zaproxy.Spec.ContainerPort,
 							Name:          "zaproxy",
 						}},
-						Args: []string{"zap-webswing.sh"},
+						//Args: []string{"zap-webswing.sh"},
 					}},
 				},
 			},
@@ -344,4 +385,30 @@ func (r *ZAProxyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&zaproxyorgv1alpha1.ZAProxy{}).
 		Owns(&appsv1.Deployment{}).
 		Complete(r)
+}
+
+func updateReplicas(ctx context.Context, namespacedName types.NamespacedName, c client.Client) (ctrl.Result, error) {
+
+	log := log.FromContext(ctx)
+
+	log.Info("lets see if we can find deployment")
+	found := &appsv1.Deployment{}
+	err := c.Get(ctx, types.NamespacedName{Name: namespacedName.Name, Namespace: namespacedName.Namespace}, found)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	log.Info("I guess we found it?", "found", found)
+
+	log.Info("Let's try to update it")
+	newSize := new(int32)
+	*newSize = 2
+	found.Spec.Replicas = newSize
+	found.Spec.Template.Spec.Containers[0].Image = "owasp/zap2docker-broken"
+	err = c.Update(ctx, found)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+	log.Info("I guess we updated it?", "found", found)
+	return ctrl.Result{}, nil
 }
