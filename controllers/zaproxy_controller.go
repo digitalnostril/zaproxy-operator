@@ -24,6 +24,7 @@ import (
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
+	kbatch "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -46,7 +47,7 @@ const (
 	typeDegradedZAProxy = "Degraded"
 )
 
-func UpdateDeploy(name string, namespace string, c client.Client) (ctrl.Result, error) {
+func CreateJob(name string, namespace string, c client.Client) (ctrl.Result, error) {
 	ctx := context.TODO()
 	log := log.FromContext(ctx)
 
@@ -55,7 +56,6 @@ func UpdateDeploy(name string, namespace string, c client.Client) (ctrl.Result, 
 		Name:      name,
 	}
 
-	log.Info("Starting things up", "namespace", namespacedName.String())
 	zaproxy := &zaproxyorgv1alpha1.ZAProxy{}
 	err := c.Get(ctx, namespacedName, zaproxy)
 	if err != nil {
@@ -67,13 +67,70 @@ func UpdateDeploy(name string, namespace string, c client.Client) (ctrl.Result, 
 		return ctrl.Result{}, err
 	}
 
-	log.Info("Let's try to change the replica count part2")
-
-	result, err := updateReplicas(ctx, namespacedName, c)
+	// Get the Operand image
+	image, err := imageForZAProxy()
 	if err != nil {
+		return ctrl.Result{}, err
+	}
 
-		log.Error(err, "Failed to update replica count")
-		return result, err
+	constructJob := func(zaproxy *zaproxyorgv1alpha1.ZAProxy, scheduledTime time.Time) (*kbatch.Job, error) {
+		// We want job names for a given nominal start time to have a deterministic name to avoid the same job being created twice
+		name := fmt.Sprintf("%s-%d", zaproxy.Name, scheduledTime.Unix())
+
+		job := &kbatch.Job{
+			ObjectMeta: metav1.ObjectMeta{
+				Labels:      make(map[string]string),
+				Annotations: make(map[string]string),
+				Name:        name,
+				Namespace:   zaproxy.Namespace,
+			},
+			Spec: kbatch.JobSpec{
+				Template: corev1.PodTemplateSpec{
+					ObjectMeta: metav1.ObjectMeta{
+						Labels:      make(map[string]string),
+						Annotations: make(map[string]string),
+					},
+					Spec: corev1.PodSpec{
+						Containers: []corev1.Container{
+							{
+								Name:            "zaproxy",
+								Image:           image,
+								ImagePullPolicy: corev1.PullIfNotPresent,
+								Ports: []corev1.ContainerPort{
+									{
+										ContainerPort: 8080,
+										Name:          "zaproxy",
+									},
+								},
+							},
+						},
+						RestartPolicy: corev1.RestartPolicyNever,
+					},
+				},
+			},
+		}
+		if err := ctrl.SetControllerReference(zaproxy, job, c.Scheme()); err != nil {
+			return nil, err
+		}
+
+		return job, nil
+	}
+	// +kubebuilder:docs-gen:collapse=constructJobForCronJob
+
+	log.Info("Starting things up", "namespace", namespacedName.String())
+
+	// actually make the job...
+	job, err := constructJob(zaproxy, time.Now())
+	if err != nil {
+		log.Error(err, "unable to construct job from template")
+		// don't bother requeuing until we get a change to the spec
+		return ctrl.Result{}, nil
+	}
+
+	// ...and create it on the cluster
+	if err := c.Create(ctx, job); err != nil {
+		log.Error(err, "unable to create Job for ZAProxy", "job", job)
+		return ctrl.Result{}, err
 	}
 
 	return ctrl.Result{}, nil
@@ -96,6 +153,8 @@ type ZAProxyReconciler struct {
 //+kubebuilder:rbac:groups=core,resources=events,verbs=create;patch
 //+kubebuilder:rbac:groups=apps,resources=deployments,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
+//+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -385,30 +444,4 @@ func (r *ZAProxyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		For(&zaproxyorgv1alpha1.ZAProxy{}).
 		Owns(&appsv1.Deployment{}).
 		Complete(r)
-}
-
-func updateReplicas(ctx context.Context, namespacedName types.NamespacedName, c client.Client) (ctrl.Result, error) {
-
-	log := log.FromContext(ctx)
-
-	log.Info("lets see if we can find deployment")
-	found := &appsv1.Deployment{}
-	err := c.Get(ctx, types.NamespacedName{Name: namespacedName.Name, Namespace: namespacedName.Namespace}, found)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-
-	log.Info("I guess we found it?", "found", found)
-
-	log.Info("Let's try to update it")
-	newSize := new(int32)
-	*newSize = 2
-	found.Spec.Replicas = newSize
-	found.Spec.Template.Spec.Containers[0].Image = "owasp/zap2docker-broken"
-	err = c.Update(ctx, found)
-	if err != nil {
-		return ctrl.Result{}, err
-	}
-	log.Info("I guess we updated it?", "found", found)
-	return ctrl.Result{}, nil
 }

@@ -130,11 +130,11 @@ type MyHandler struct {
 
 func (h *MyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
-	_, err := controllers.UpdateDeploy("zaproxy-sample", "default", h.Client)
+	_, err := controllers.CreateJob("zaproxy-sample", "default", h.Client)
 	if err != nil {
 
-		setupLog.Error(err, "Failed to update replica count")
-		w.Write([]byte("Failed to update replica count"))
+		setupLog.Error(err, "Failed to create job")
+		w.Write([]byte("Failed to create job"))
 	}
 	w.Write([]byte("Hello, world!"))
 }
