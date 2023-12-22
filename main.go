@@ -92,7 +92,7 @@ func main() {
 	}
 
 	// Try registering with the existing webhook server.
-	mgr.GetWebhookServer().Register("/zaptest", &MyHandler{Client: mgr.GetClient()})
+	mgr.GetWebhookServer().Register("/zap/start", &MyHandler{Client: mgr.GetClient()})
 
 	if err = (&controllers.ZAProxyReconciler{
 		Client:   mgr.GetClient(),
@@ -130,7 +130,16 @@ type MyHandler struct {
 
 func (h *MyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
-	_, err := controllers.CreateJob("zaproxy-sample", "default", h.Client)
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if name == "" || namespace == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Both 'name' and 'namespace' query parameters must be provided"))
+		return
+	}
+
+	_, err := controllers.CreateJob(name, namespace, h.Client)
 	if err != nil {
 
 		setupLog.Error(err, "Failed to create job")
