@@ -18,6 +18,7 @@ package v1alpha1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 )
 
 // EDIT THIS FILE!  THIS IS SCAFFOLDING FOR YOU TO OWN!
@@ -41,6 +42,17 @@ type ZAProxySpec struct {
 	// Port defines the port that will be used to init the container with the image
 	// +operator-sdk:csv:customresourcedefinitions:type=spec
 	ContainerPort int32 `json:"containerPort,omitempty"`
+
+	// +operator-sdk:csv:customresourcedefinitions:type=spec
+	Automation Automation `json:"automation,omitempty"`
+
+	// +operator-sdk:csv:customresourcedefinitions:type=spec
+	StorageClassName string `json:"storageClassName,omitempty"`
+}
+
+type Automation struct {
+	// +operator-sdk:csv:customresourcedefinitions:type=spec
+	Plan runtime.RawExtension `json:"plan,omitempty"`
 }
 
 // ZAProxyStatus defines the observed state of ZAProxy

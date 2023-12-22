@@ -18,16 +18,19 @@ package controllers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
+	"gopkg.in/yaml.v2"
 	appsv1 "k8s.io/api/apps/v1"
 	kbatch "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -102,6 +105,37 @@ func CreateJob(name string, namespace string, c client.Client) (ctrl.Result, err
 										Name:          "zaproxy",
 									},
 								},
+								Args: []string{"./zap.sh", "-cmd", "-autorun", "/zap/config/af-plan.yaml"},
+								VolumeMounts: []corev1.VolumeMount{
+									{
+										Name:      "config",
+										MountPath: "/zap/config",
+									},
+									{
+										Name:      "pvc",
+										MountPath: "/zap/reports",
+									},
+								},
+							},
+						},
+						Volumes: []corev1.Volume{
+							{
+								Name: "config",
+								VolumeSource: corev1.VolumeSource{
+									ConfigMap: &corev1.ConfigMapVolumeSource{
+										LocalObjectReference: corev1.LocalObjectReference{
+											Name: zaproxy.Name + "-config",
+										},
+									},
+								},
+							},
+							{
+								Name: "pvc",
+								VolumeSource: corev1.VolumeSource{
+									PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+										ClaimName: zaproxy.Name + "-pvc",
+									},
+								},
 							},
 						},
 						RestartPolicy: corev1.RestartPolicyNever,
@@ -155,6 +189,8 @@ type ZAProxyReconciler struct {
 //+kubebuilder:rbac:groups=core,resources=pods,verbs=get;list;watch
 //+kubebuilder:rbac:groups=batch,resources=jobs,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
+//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -200,6 +236,45 @@ func (r *ZAProxyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			log.Error(err, "Failed to re-fetch zaproxy")
 			return ctrl.Result{}, err
 		}
+	}
+
+	// Check if the ConfigMap already exists, if not create a new one
+	configMap := &corev1.ConfigMap{}
+	err = r.Get(ctx, types.NamespacedName{Name: zaproxy.Name + "-config", Namespace: zaproxy.Namespace}, configMap)
+
+	if err != nil {
+		log.Info("Get ConfigMap returned an error", "error", err)
+	}
+
+	if err != nil && apierrors.IsNotFound(err) {
+		// Define a new ConfigMap
+		configMap, err = r.configMapForZAProxy(zaproxy)
+		if err != nil {
+			log.Error(err, "Failed to define a new ConfigMap", "ConfigMap.Namespace", zaproxy.Namespace, "ConfigMap.Name", zaproxy.Name+"-config")
+			return ctrl.Result{}, err
+		}
+		if err := r.Create(ctx, configMap); err != nil {
+			log.Error(err, "Failed to create new ConfigMap", "ConfigMap.Namespace", configMap.Namespace, "ConfigMap.Name", configMap.Name)
+			return ctrl.Result{}, err
+		}
+		// ConfigMap created successfully - return and requeue
+		return ctrl.Result{Requeue: true}, nil
+	} else {
+		log.Info("Get ConfigMap did not return an error, ConfigMap found", "ConfigMap", configMap)
+	}
+
+	// Check if the PVC already exists, if not create a new one
+	pvc := &corev1.PersistentVolumeClaim{}
+	err = r.Get(ctx, types.NamespacedName{Name: zaproxy.Name + "-pvc", Namespace: zaproxy.Namespace}, pvc)
+	if err != nil && apierrors.IsNotFound(err) {
+		// Define a new PVC
+		pvc = r.pvcForZAProxy(zaproxy)
+		if err := r.Create(ctx, pvc); err != nil {
+			log.Error(err, "Failed to create new PVC", "PVC.Namespace", pvc.Namespace, "PVC.Name", pvc.Name)
+			return ctrl.Result{}, err
+		}
+		// PVC created successfully - return and requeue
+		return ctrl.Result{Requeue: true}, nil
 	}
 
 	// Check if the deployment already exists, if not create a new one
@@ -409,6 +484,55 @@ func (r *ZAProxyReconciler) deploymentForZAProxy(
 		return nil, err
 	}
 	return dep, nil
+}
+
+// configMapForZAProxy returns a ZAProxy ConfigMap object
+func (r *ZAProxyReconciler) configMapForZAProxy(zaproxy *zaproxyorgv1alpha1.ZAProxy) (*corev1.ConfigMap, error) {
+	var plan map[string]interface{}
+	if err := json.Unmarshal(zaproxy.Spec.Automation.Plan.Raw, &plan); err != nil {
+		return nil, err
+	}
+
+	planStr, err := yaml.Marshal(plan)
+	if err != nil {
+		return nil, err
+	}
+
+	return &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      zaproxy.Name + "-config",
+			Namespace: zaproxy.Namespace,
+		},
+		Data: map[string]string{
+			"af-plan.yaml": string(planStr),
+		},
+	}, nil
+}
+
+// pvcForZAProxy returns a ZAProxy PersistentVolumeClaim object
+func (r *ZAProxyReconciler) pvcForZAProxy(zaproxy *zaproxyorgv1alpha1.ZAProxy) *corev1.PersistentVolumeClaim {
+	log := log.FromContext(context.TODO())
+
+	storageClassName := zaproxy.Spec.StorageClassName
+	log.Info("StorageClassName", "storageClassName", storageClassName)
+
+	return &corev1.PersistentVolumeClaim{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      zaproxy.Name + "-pvc",
+			Namespace: zaproxy.Namespace,
+		},
+		Spec: corev1.PersistentVolumeClaimSpec{
+			AccessModes: []corev1.PersistentVolumeAccessMode{
+				corev1.ReadWriteOnce,
+			},
+			Resources: corev1.ResourceRequirements{
+				Requests: corev1.ResourceList{
+					corev1.ResourceStorage: resource.MustParse("1Gi"),
+				},
+			},
+			StorageClassName: &storageClassName,
+		},
+	}
 }
 
 // labelsForZAProxy returns the labels for selecting the resources
