@@ -66,3 +66,8 @@ spec:
           reportDescription: ""
         name: "report"
         type: "report"
+      - parameters:
+          time: "600"
+          fileName: ""
+        name: "delay"
+        type: "delay"

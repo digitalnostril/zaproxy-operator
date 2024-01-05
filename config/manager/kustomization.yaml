@@ -5,4 +5,4 @@ kind: Kustomization
 images:
 - name: controller
   newName: ghcr.io/digitalnostril/zaproxy-operator
-  newTag: 0.0.37
+  newTag: 0.0.41

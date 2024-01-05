@@ -94,6 +94,8 @@ func main() {
 	// Try registering with the existing webhook server.
 	mgr.GetWebhookServer().Register("/zap/start", &MyHandler{Client: mgr.GetClient()})
 
+	mgr.GetWebhookServer().Register("/zap/enddelay", &EndDelay{Client: mgr.GetClient()})
+
 	if err = (&controllers.ZAProxyReconciler{
 		Client:   mgr.GetClient(),
 		Scheme:   mgr.GetScheme(),
@@ -144,6 +146,30 @@ func (h *MyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		setupLog.Error(err, "Failed to create job")
 		w.Write([]byte("Failed to create job"))
+	}
+	w.Write([]byte("Hello, world!"))
+}
+
+type EndDelay struct {
+	Client client.Client
+}
+
+func (h *EndDelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	name := r.URL.Query().Get("name")
+	namespace := r.URL.Query().Get("namespace")
+
+	if name == "" || namespace == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte("Both 'name' and 'namespace' query parameters must be provided"))
+		return
+	}
+
+	_, err := controllers.EndDelayZAPJob(name, namespace, h.Client)
+	if err != nil {
+
+		setupLog.Error(err, "Failed to end zap job")
+		w.Write([]byte("Failed to end zap job"))
 	}
 	w.Write([]byte("Hello, world!"))
 }
