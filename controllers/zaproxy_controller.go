@@ -53,17 +53,17 @@ const (
 	typeDegradedZAProxy = "Degraded"
 )
 
-func EndDelayZAPJob(name string, namespace string, c client.Client) (ctrl.Result, error) {
+func EndDelayZAPJob(namespacedName types.NamespacedName, c client.Client) (ctrl.Result, error) {
 	ctx := context.TODO()
 	log := log.FromContext(ctx)
 
 	// TODO: Need to change to use the zaproxy resource to get the job name instead of needing to know the job name
 	job := &kbatch.Job{}
-	if err := c.Get(ctx, types.NamespacedName{Name: name + "-job", Namespace: namespace}, job); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Name: namespacedName.Name + "-job", Namespace: namespacedName.Namespace}, job); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get job: %w", err)
 	}
 
-	ip, err := getJobPodIP(ctx, c, job, namespace)
+	ip, err := getJobPodIP(ctx, c, job, namespacedName.Namespace)
 	if err != nil {
 		log.Error(err, "Failed to get pod IP")
 		return ctrl.Result{}, err
@@ -76,7 +76,7 @@ func EndDelayZAPJob(name string, namespace string, c client.Client) (ctrl.Result
 	}
 
 	// Maybe I should just use the pod IP instead?
-	url := fmt.Sprintf("http://%s.%s.pod:%s/JSON/automation/action/endDelayJob", strings.ReplaceAll(ip, ".", "-"), namespace, strconv.Itoa(int(port)))
+	url := fmt.Sprintf("http://%s.%s.pod:%s/JSON/automation/action/endDelayJob", strings.ReplaceAll(ip, ".", "-"), namespacedName.Namespace, strconv.Itoa(int(port)))
 
 	log.Info("URL", "url", url)
 
@@ -108,14 +108,9 @@ func getJobContainerPort(job *kbatch.Job) (int32, error) {
 	return 0, fmt.Errorf("no containers found in the job")
 }
 
-func CreateJob(name string, namespace string, c client.Client) (ctrl.Result, error) {
+func CreateJob(namespacedName types.NamespacedName, c client.Client) (ctrl.Result, error) {
 	ctx := context.TODO()
 	log := log.FromContext(ctx)
-
-	namespacedName := client.ObjectKey{
-		Namespace: namespace,
-		Name:      name,
-	}
 
 	zaproxy := &zaproxyorgv1alpha1.ZAProxy{}
 	err := c.Get(ctx, namespacedName, zaproxy)

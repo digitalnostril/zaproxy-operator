@@ -18,7 +18,6 @@ package main
 
 import (
 	"flag"
-	"net/http"
 	"os"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
@@ -29,7 +28,6 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -91,10 +89,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Try registering with the existing webhook server.
-	mgr.GetWebhookServer().Register("/zap/start", &MyHandler{Client: mgr.GetClient()})
-
-	mgr.GetWebhookServer().Register("/zap/enddelay", &EndDelay{Client: mgr.GetClient()})
+	mgr.GetWebhookServer().Register("/zap/start", &StartJobHandler{Client: mgr.GetClient()})
+	mgr.GetWebhookServer().Register("/zap/enddelay", &EndDelayZAPJobHandler{Client: mgr.GetClient()})
 
 	if err = (&controllers.ZAProxyReconciler{
 		Client:   mgr.GetClient(),
@@ -124,52 +120,4 @@ func main() {
 		setupLog.Error(err, "problem running manager")
 		os.Exit(1)
 	}
-}
-
-type MyHandler struct {
-	Client client.Client
-}
-
-func (h *MyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
-	name := r.URL.Query().Get("name")
-	namespace := r.URL.Query().Get("namespace")
-
-	if name == "" || namespace == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Both 'name' and 'namespace' query parameters must be provided"))
-		return
-	}
-
-	_, err := controllers.CreateJob(name, namespace, h.Client)
-	if err != nil {
-
-		setupLog.Error(err, "Failed to create job")
-		w.Write([]byte("Failed to create job"))
-	}
-	w.Write([]byte("Hello, world!"))
-}
-
-type EndDelay struct {
-	Client client.Client
-}
-
-func (h *EndDelay) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-
-	name := r.URL.Query().Get("name")
-	namespace := r.URL.Query().Get("namespace")
-
-	if name == "" || namespace == "" {
-		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte("Both 'name' and 'namespace' query parameters must be provided"))
-		return
-	}
-
-	_, err := controllers.EndDelayZAPJob(name, namespace, h.Client)
-	if err != nil {
-
-		setupLog.Error(err, "Failed to end zap job")
-		w.Write([]byte("Failed to end zap job"))
-	}
-	w.Write([]byte("Hello, world!"))
 }
