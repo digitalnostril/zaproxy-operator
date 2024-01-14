@@ -59,7 +59,7 @@ func EndDelayZAPJob(name string, namespace string, c client.Client) (ctrl.Result
 
 	// TODO: Need to change to use the zaproxy resource to get the job name instead of needing to know the job name
 	job := &kbatch.Job{}
-	if err := c.Get(ctx, types.NamespacedName{Name: name, Namespace: namespace}, job); err != nil {
+	if err := c.Get(ctx, types.NamespacedName{Name: name + "-job", Namespace: namespace}, job); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get job: %w", err)
 	}
 
@@ -134,9 +134,30 @@ func CreateJob(name string, namespace string, c client.Client) (ctrl.Result, err
 		return ctrl.Result{}, err
 	}
 
-	constructJob := func(zaproxy *zaproxyorgv1alpha1.ZAProxy, scheduledTime time.Time) (*kbatch.Job, error) {
+	jobName := zaproxy.Name + "-job"
+	getJob := func(zaproxy *zaproxyorgv1alpha1.ZAProxy) (*kbatch.Job, error) {
+
+		job := &kbatch.Job{}
+		err = c.Get(ctx, types.NamespacedName{Name: jobName, Namespace: zaproxy.Namespace}, job)
+
+		return job, err
+	}
+
+	isJobFinished := func(job *kbatch.Job) bool {
+		for _, c := range job.Status.Conditions {
+			if (c.Type == kbatch.JobComplete || c.Type == kbatch.JobFailed) && c.Status == corev1.ConditionTrue {
+				log.Info("Job finished", "job", job)
+				return true
+			}
+		}
+
+		return false
+	}
+	// +kubebuilder:docs-gen:collapse=isJobFinished
+
+	constructJob := func(zaproxy *zaproxyorgv1alpha1.ZAProxy) (*kbatch.Job, error) {
 		// We want job names for a given nominal start time to have a deterministic name to avoid the same job being created twice
-		name := fmt.Sprintf("%s-%d", zaproxy.Name, scheduledTime.Unix())
+		name := fmt.Sprintf("%s-%s", zaproxy.Name, "job")
 
 		job := &kbatch.Job{
 			ObjectMeta: metav1.ObjectMeta{
@@ -211,19 +232,55 @@ func CreateJob(name string, namespace string, c client.Client) (ctrl.Result, err
 
 	log.Info("Starting things up", "namespace", namespacedName.String())
 
-	// actually make the job...
-	job, err := constructJob(zaproxy, time.Now())
+	// Check if the Job already exists
+	job, getJobErr := getJob(zaproxy)
+
+	if getJobErr != nil && !apierrors.IsNotFound(getJobErr) {
+		log.Error(err, "error occurred retrieving job")
+		return ctrl.Result{}, err
+	} else if isJobFinished(job) {
+		// Delete the existing job if it exists and is finished
+		if deleteErr := c.Delete(ctx, job); deleteErr != nil {
+			log.Error(deleteErr, "unable to delete old Job for ZAProxy", "job", job)
+			return ctrl.Result{}, deleteErr
+		}
+
+		log.Info("Job deleted successfully", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
+
+		// Poll until the job is deleted
+		deletionCtx, cancel := context.WithDeadline(ctx, time.Now().Add(5*time.Minute))
+		defer cancel()
+
+		for {
+			time.Sleep(time.Second)
+
+			err = c.Get(deletionCtx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, job)
+			if apierrors.IsNotFound(err) {
+				break
+			} else if err != nil {
+				log.Error(err, "failed to get job")
+				return ctrl.Result{}, err
+			}
+
+			if deletionCtx.Err() != nil {
+				log.Error(deletionCtx.Err(), "timed out waiting for job deletion")
+				return ctrl.Result{}, nil
+			}
+		}
+	}
+
+	job, err = constructJob(zaproxy)
 	if err != nil {
 		log.Error(err, "unable to construct job from template")
-		// don't bother requeuing until we get a change to the spec
 		return ctrl.Result{}, nil
 	}
 
-	// ...and create it on the cluster
 	if err := c.Create(ctx, job); err != nil {
 		log.Error(err, "unable to create Job for ZAProxy", "job", job)
 		return ctrl.Result{}, err
 	}
+
+	log.Info("Job created successfully", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
 
 	return ctrl.Result{}, nil
 }
