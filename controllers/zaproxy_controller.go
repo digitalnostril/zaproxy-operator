@@ -92,166 +92,36 @@ func CreateJob(ctx context.Context, c client.Client, namespacedName types.Namesp
 	log := log.FromContext(ctx)
 
 	zaproxy := &zaproxyorgv1alpha1.ZAProxy{}
-	err := c.Get(ctx, namespacedName, zaproxy)
-	if err != nil {
-		if apierrors.IsNotFound(err) {
-			log.Info("zaproxy resource not found. Ignoring since object must be deleted")
-			return ctrl.Result{}, nil
-		}
-		log.Error(err, "Failed to get zaproxy")
-		return ctrl.Result{}, err
+	if err := c.Get(ctx, namespacedName, zaproxy); err != nil {
+		return ctrl.Result{}, fmt.Errorf("failed to get zaproxy resource %v: %w", namespacedName, err)
 	}
 
-	// Get the Operand image
 	image, err := imageForZAProxy()
 	if err != nil {
 		return ctrl.Result{}, err
 	}
 
-	jobName := zaproxy.Name + "-job"
-	getJob := func(zaproxy *zaproxyorgv1alpha1.ZAProxy) (*kbatch.Job, error) {
+	jobName := getJobName(namespacedName)
 
-		job := &kbatch.Job{}
-		err = c.Get(ctx, types.NamespacedName{Name: jobName, Namespace: zaproxy.Namespace}, job)
+	job, err := getJob(ctx, c, namespacedName)
 
-		return job, err
-	}
-
-	isJobFinished := func(job *kbatch.Job) bool {
-		for _, c := range job.Status.Conditions {
-			if (c.Type == kbatch.JobComplete || c.Type == kbatch.JobFailed) && c.Status == corev1.ConditionTrue {
-				log.Info("Job finished", "job", job)
-				return true
-			}
-		}
-
-		return false
-	}
-	// +kubebuilder:docs-gen:collapse=isJobFinished
-
-	constructJob := func(zaproxy *zaproxyorgv1alpha1.ZAProxy) (*kbatch.Job, error) {
-		// We want job names for a given nominal start time to have a deterministic name to avoid the same job being created twice
-		name := fmt.Sprintf("%s-%s", zaproxy.Name, "job")
-
-		job := &kbatch.Job{
-			ObjectMeta: metav1.ObjectMeta{
-				Labels:      make(map[string]string),
-				Annotations: make(map[string]string),
-				Name:        name,
-				Namespace:   zaproxy.Namespace,
-			},
-			Spec: kbatch.JobSpec{
-				Template: corev1.PodTemplateSpec{
-					ObjectMeta: metav1.ObjectMeta{
-						Labels:      make(map[string]string),
-						Annotations: make(map[string]string),
-					},
-					Spec: corev1.PodSpec{
-						Containers: []corev1.Container{
-							{
-								Name:            "zaproxy",
-								Image:           image,
-								ImagePullPolicy: corev1.PullIfNotPresent,
-								Ports: []corev1.ContainerPort{
-									{
-										ContainerPort: 8080,
-										Name:          "zaproxy",
-									},
-								},
-								Args: []string{"./zap.sh", "-cmd", "-autorun", "/zap/config/af-plan.yaml", "-host", "0.0.0.0", "-config", "api.disablekey=true", "-config", "api.addrs.addr.name=.*", "-config", "api.addrs.addr.regex=true"},
-								VolumeMounts: []corev1.VolumeMount{
-									{
-										Name:      "config",
-										MountPath: "/zap/config",
-									},
-									{
-										Name:      "pvc",
-										MountPath: "/zap/reports",
-									},
-								},
-							},
-						},
-						Volumes: []corev1.Volume{
-							{
-								Name: "config",
-								VolumeSource: corev1.VolumeSource{
-									ConfigMap: &corev1.ConfigMapVolumeSource{
-										LocalObjectReference: corev1.LocalObjectReference{
-											Name: zaproxy.Name + "-config",
-										},
-									},
-								},
-							},
-							{
-								Name: "pvc",
-								VolumeSource: corev1.VolumeSource{
-									PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
-										ClaimName: zaproxy.Name + "-pvc",
-									},
-								},
-							},
-						},
-						RestartPolicy: corev1.RestartPolicyNever,
-					},
-				},
-			},
-		}
-		if err := ctrl.SetControllerReference(zaproxy, job, c.Scheme()); err != nil {
-			return nil, err
-		}
-
-		return job, nil
-	}
-	// +kubebuilder:docs-gen:collapse=constructJobForCronJob
-
-	log.Info("Starting things up", "namespace", namespacedName.String())
-
-	// Check if the Job already exists
-	job, getJobErr := getJob(zaproxy)
-
-	if getJobErr != nil && !apierrors.IsNotFound(getJobErr) {
-		log.Error(err, "error occurred retrieving job")
-		return ctrl.Result{}, err
-	} else if isJobFinished(job) {
-		// Delete the existing job if it exists and is finished
-		if deleteErr := c.Delete(ctx, job); deleteErr != nil {
-			log.Error(deleteErr, "unable to delete old Job for ZAProxy", "job", job)
-			return ctrl.Result{}, deleteErr
-		}
-
-		log.Info("Job deleted successfully", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
-
-		// Poll until the job is deleted
-		deletionCtx, cancel := context.WithDeadline(ctx, time.Now().Add(5*time.Minute))
-		defer cancel()
-
-		for {
-			time.Sleep(time.Second)
-
-			err = c.Get(deletionCtx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, job)
-			if apierrors.IsNotFound(err) {
-				break
-			} else if err != nil {
-				log.Error(err, "failed to get job")
-				return ctrl.Result{}, err
-			}
-
-			if deletionCtx.Err() != nil {
-				log.Error(deletionCtx.Err(), "timed out waiting for job deletion")
-				return ctrl.Result{}, nil
-			}
-		}
-	}
-
-	job, err = constructJob(zaproxy)
 	if err != nil {
-		log.Error(err, "unable to construct job from template")
-		return ctrl.Result{}, nil
+		if !apierrors.IsNotFound(err) {
+			return ctrl.Result{}, fmt.Errorf("error occurred retrieving job %v: %w", namespacedName, err)
+		}
+	} else if isJobFinished(ctx, job) {
+		if err := deleteJob(ctx, c, job); err != nil {
+			return ctrl.Result{}, err
+		}
+	}
+
+	job, err = constructJob(c, zaproxy, jobName, image)
+	if err != nil {
+		return ctrl.Result{}, fmt.Errorf("unable to construct job from template %v: %w", namespacedName, err)
 	}
 
 	if err := c.Create(ctx, job); err != nil {
-		log.Error(err, "unable to create Job for ZAProxy", "job", job)
-		return ctrl.Result{}, err
+		return ctrl.Result{}, fmt.Errorf("unable to create Job for ZAProxy %v: %w", namespacedName, err)
 	}
 
 	log.Info("Job created successfully", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
@@ -445,9 +315,87 @@ func imageForZAProxy() (string, error) {
 	return image, nil
 }
 
+func constructJob(c client.Client, zaproxy *zaproxyorgv1alpha1.ZAProxy, jobName string, image string) (*kbatch.Job, error) {
+
+	job := &kbatch.Job{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels:      make(map[string]string),
+			Annotations: make(map[string]string),
+			Name:        jobName,
+			Namespace:   zaproxy.Namespace,
+		},
+		Spec: kbatch.JobSpec{
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      make(map[string]string),
+					Annotations: make(map[string]string),
+				},
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:            "zaproxy",
+							Image:           image,
+							ImagePullPolicy: corev1.PullIfNotPresent,
+							Ports: []corev1.ContainerPort{
+								{
+									ContainerPort: 8080,
+									Name:          "zaproxy",
+								},
+							},
+							Args: []string{"./zap.sh", "-cmd", "-autorun", "/zap/config/af-plan.yaml", "-host", "0.0.0.0", "-config", "api.disablekey=true", "-config", "api.addrs.addr.name=.*", "-config", "api.addrs.addr.regex=true"},
+							VolumeMounts: []corev1.VolumeMount{
+								{
+									Name:      "config",
+									MountPath: "/zap/config",
+								},
+								{
+									Name:      "pvc",
+									MountPath: "/zap/reports",
+								},
+							},
+						},
+					},
+					Volumes: []corev1.Volume{
+						{
+							Name: "config",
+							VolumeSource: corev1.VolumeSource{
+								ConfigMap: &corev1.ConfigMapVolumeSource{
+									LocalObjectReference: corev1.LocalObjectReference{
+										Name: zaproxy.Name + "-config",
+									},
+								},
+							},
+						},
+						{
+							Name: "pvc",
+							VolumeSource: corev1.VolumeSource{
+								PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+									ClaimName: zaproxy.Name + "-pvc",
+								},
+							},
+						},
+					},
+					RestartPolicy: corev1.RestartPolicyNever,
+				},
+			},
+		},
+	}
+	if err := ctrl.SetControllerReference(zaproxy, job, c.Scheme()); err != nil {
+		return nil, err
+	}
+
+	return job, nil
+}
+
+// +kubebuilder:docs-gen:collapse=constructJob
+
+func getJobName(namespacedName types.NamespacedName) string {
+	return namespacedName.Name + "-job"
+}
+
 func getJob(ctx context.Context, c client.Client, namespacedName types.NamespacedName) (*kbatch.Job, error) {
 
-	jobName := namespacedName.Name + "-job"
+	jobName := getJobName(namespacedName)
 	job := &kbatch.Job{}
 	err := c.Get(ctx, types.NamespacedName{Name: jobName, Namespace: namespacedName.Namespace}, job)
 
@@ -456,6 +404,55 @@ func getJob(ctx context.Context, c client.Client, namespacedName types.Namespace
 	}
 
 	return job, err
+}
+
+func isJobFinished(ctx context.Context, job *kbatch.Job) bool {
+	log := log.FromContext(ctx)
+
+	for _, c := range job.Status.Conditions {
+		if (c.Type == kbatch.JobComplete || c.Type == kbatch.JobFailed) && c.Status == corev1.ConditionTrue {
+			log.Info("Job finished", "job", job)
+			return true
+		}
+	}
+
+	return false
+}
+
+func waitForJobDeletion(ctx context.Context, c client.Client, job *kbatch.Job) error {
+
+	deletionCtx, cancel := context.WithDeadline(ctx, time.Now().Add(5*time.Minute))
+	defer cancel()
+
+	for {
+		time.Sleep(time.Second)
+
+		err := c.Get(deletionCtx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, job)
+		if apierrors.IsNotFound(err) {
+			break
+		} else if err != nil {
+			return fmt.Errorf("failed to get job with name %s in namespace %s: %w", job.Name, job.Namespace, err)
+		}
+
+		if deletionCtx.Err() != nil {
+			return fmt.Errorf("timed out waiting for deletion of job with name %s in namespace %s: %w", job.Name, job.Namespace, deletionCtx.Err())
+		}
+	}
+
+	return nil
+}
+
+func deleteJob(ctx context.Context, c client.Client, job *kbatch.Job) error {
+
+	if err := c.Delete(ctx, job); err != nil {
+		return fmt.Errorf("unable to delete old Job for ZAProxy (Job.Namespace: %s, Job.Name: %s): %w", job.Namespace, job.Name, err)
+	}
+
+	if err := waitForJobDeletion(ctx, c, job); err != nil {
+		return fmt.Errorf("error waiting for job deletion (Job.Namespace: %s, Job.Name: %s): %w", job.Namespace, job.Name, err)
+	}
+
+	return nil
 }
 
 func getJobPodIP(ctx context.Context, c client.Client, job *kbatch.Job) (string, error) {
