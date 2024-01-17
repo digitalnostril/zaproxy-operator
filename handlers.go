@@ -30,7 +30,7 @@ func (h *StartJobHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		Name:      values["name"],
 	}
 
-	if _, err := controllers.CreateJob(namespacedName, h.Client); err != nil {
+	if _, err := controllers.CreateJob(r.Context(), h.Client, namespacedName); err != nil {
 		setupLog.Error(err, ErrFailedToCreateJob, namespacedNameToKeyValueSlice(namespacedName)...)
 		http.Error(w, ErrFailedToCreateJob, http.StatusInternalServerError)
 		return
@@ -63,7 +63,7 @@ func (h *EndDelayZAPJobHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 		Name:      values["name"],
 	}
 
-	if _, err := controllers.EndDelayZAPJob(namespacedName, h.Client); err != nil {
+	if _, err := controllers.EndDelayZAPJob(r.Context(), h.Client, namespacedName); err != nil {
 		setupLog.Error(err, ErrFailedToEndJob, namespacedNameToKeyValueSlice(namespacedName)...)
 		http.Error(w, ErrFailedToEndJob, http.StatusInternalServerError)
 		return

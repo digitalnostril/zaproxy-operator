@@ -53,63 +53,42 @@ const (
 	typeDegradedZAProxy = "Degraded"
 )
 
-func EndDelayZAPJob(namespacedName types.NamespacedName, c client.Client) (ctrl.Result, error) {
-	ctx := context.TODO()
+func EndDelayZAPJob(ctx context.Context, c client.Client, namespacedName types.NamespacedName) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
-	// TODO: Need to change to use the zaproxy resource to get the job name instead of needing to know the job name
-	job := &kbatch.Job{}
-	if err := c.Get(ctx, types.NamespacedName{Name: namespacedName.Name + "-job", Namespace: namespacedName.Namespace}, job); err != nil {
-		return ctrl.Result{}, fmt.Errorf("failed to get job: %w", err)
+	job, err := getJob(ctx, c, namespacedName)
+	if err != nil {
+		return ctrl.Result{}, err
 	}
 
-	ip, err := getJobPodIP(ctx, c, job, namespacedName.Namespace)
+	ip, err := getJobPodIP(ctx, c, job)
 	if err != nil {
-		log.Error(err, "Failed to get pod IP")
 		return ctrl.Result{}, err
 	}
 
 	port, err := getJobContainerPort(job)
 	if err != nil {
-		log.Error(err, "Failed to get container port")
 		return ctrl.Result{}, err
 	}
 
-	// Maybe I should just use the pod IP instead?
-	url := fmt.Sprintf("http://%s.%s.pod:%s/JSON/automation/action/endDelayJob", strings.ReplaceAll(ip, ".", "-"), namespacedName.Namespace, strconv.Itoa(int(port)))
+	uri := fmt.Sprintf("http://%s:%s/JSON/automation/action/endDelayJob", ip, strconv.Itoa(int(port)))
+	log.Info("Sending request", "URI", uri, "Job", job.Name, "Namespace", job.Namespace)
 
-	log.Info("URL", "url", url)
-
-	req, err := http.NewRequest("GET", url, nil)
+	resp, err := sendHTTPRequest(ctx, "GET", uri, time.Second*60)
 	if err != nil {
-		log.Error(err, "Failed to create request")
 		return ctrl.Result{}, err
 	}
+	defer resp.Body.Close()
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Error(err, "Failed to send request")
-		return ctrl.Result{}, err
+	if resp.StatusCode != http.StatusOK {
+		return ctrl.Result{}, fmt.Errorf("received non-OK status code %d from URL %s", resp.StatusCode, resp.Request.URL)
 	}
 
-	log.Info("Response", "resp", resp)
-
+	log.Info("Received response", "Status Code", resp.StatusCode, "Status", resp.Status, "URL", resp.Request.URL, "Job", job.Name, "Namespace", job.Namespace)
 	return ctrl.Result{}, nil
 }
 
-func getJobContainerPort(job *kbatch.Job) (int32, error) {
-	if len(job.Spec.Template.Spec.Containers) > 0 {
-		if len(job.Spec.Template.Spec.Containers[0].Ports) > 0 {
-			return job.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort, nil
-		}
-		return 0, fmt.Errorf("no ports found for the first container")
-	}
-	return 0, fmt.Errorf("no containers found in the job")
-}
-
-func CreateJob(namespacedName types.NamespacedName, c client.Client) (ctrl.Result, error) {
-	ctx := context.TODO()
+func CreateJob(ctx context.Context, c client.Client, namespacedName types.NamespacedName) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
 
 	zaproxy := &zaproxyorgv1alpha1.ZAProxy{}
@@ -387,213 +366,7 @@ func (r *ZAProxyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		return ctrl.Result{Requeue: true}, nil
 	}
 
-	// // Check if the deployment already exists, if not create a new one
-	// found := &appsv1.Deployment{}
-	// err = r.Get(ctx, types.NamespacedName{Name: zaproxy.Name, Namespace: zaproxy.Namespace}, found)
-	// if err != nil && apierrors.IsNotFound(err) {
-	// 	// Define a new deployment
-	// 	dep, err := r.deploymentForZAProxy(zaproxy)
-	// 	if err != nil {
-	// 		log.Error(err, "Failed to define new Deployment resource for ZAProxy")
-
-	// 		// The following implementation will update the status
-	// 		meta.SetStatusCondition(&zaproxy.Status.Conditions, metav1.Condition{Type: typeAvailableZAProxy,
-	// 			Status: metav1.ConditionFalse, Reason: "Reconciling",
-	// 			Message: fmt.Sprintf("Failed to create Deployment for the custom resource (%s): (%s)", zaproxy.Name, err)})
-
-	// 		if err := r.Status().Update(ctx, zaproxy); err != nil {
-	// 			log.Error(err, "Failed to update ZAProxy status")
-	// 			return ctrl.Result{}, err
-	// 		}
-
-	// 		return ctrl.Result{}, err
-	// 	}
-
-	// 	log.Info("Creating a new Deployment",
-	// 		"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
-	// 	if err = r.Create(ctx, dep); err != nil {
-	// 		log.Error(err, "Failed to create new Deployment",
-	// 			"Deployment.Namespace", dep.Namespace, "Deployment.Name", dep.Name)
-	// 		return ctrl.Result{}, err
-	// 	}
-
-	// 	// Deployment created successfully
-	// 	// We will requeue the reconciliation so that we can ensure the state
-	// 	// and move forward for the next operations
-	// 	return ctrl.Result{RequeueAfter: time.Minute}, nil
-	// } else if err != nil {
-	// 	log.Error(err, "Failed to get Deployment")
-	// 	// Let's return the error for the reconciliation be re-trigged again
-	// 	return ctrl.Result{}, err
-	// }
-
-	// // The CRD API is defining that the ZAProxy type, have a ZAProxySpec.Size field
-	// // to set the quantity of Deployment instances is the desired state on the cluster.
-	// // Therefore, the following code will ensure the Deployment size is the same as defined
-	// // via the Size spec of the Custom Resource which we are reconciling.
-	// size := zaproxy.Spec.Size
-	// if *found.Spec.Replicas != size {
-	// 	found.Spec.Replicas = &size
-	// 	if err = r.Update(ctx, found); err != nil {
-	// 		log.Error(err, "Failed to update Deployment",
-	// 			"Deployment.Namespace", found.Namespace, "Deployment.Name", found.Name)
-
-	// 		// Re-fetch the zaproxy Custom Resource before update the status
-	// 		// so that we have the latest state of the resource on the cluster and we will avoid
-	// 		// raise the issue "the object has been modified, please apply
-	// 		// your changes to the latest version and try again" which would re-trigger the reconciliation
-	// 		if err := r.Get(ctx, req.NamespacedName, zaproxy); err != nil {
-	// 			log.Error(err, "Failed to re-fetch zaproxy")
-	// 			return ctrl.Result{}, err
-	// 		}
-
-	// 		// The following implementation will update the status
-	// 		meta.SetStatusCondition(&zaproxy.Status.Conditions, metav1.Condition{Type: typeAvailableZAProxy,
-	// 			Status: metav1.ConditionFalse, Reason: "Resizing",
-	// 			Message: fmt.Sprintf("Failed to update the size for the custom resource (%s): (%s)", zaproxy.Name, err)})
-
-	// 		if err := r.Status().Update(ctx, zaproxy); err != nil {
-	// 			log.Error(err, "Failed to update ZAProxy status")
-	// 			return ctrl.Result{}, err
-	// 		}
-
-	// 		return ctrl.Result{}, err
-	// 	}
-
-	// 	// Now, that we update the size we want to requeue the reconciliation
-	// 	// so that we can ensure that we have the latest state of the resource before
-	// 	// update. Also, it will help ensure the desired state on the cluster
-	// 	return ctrl.Result{Requeue: true}, nil
-	// }
-
-	// // log.Info("Let's try to change the replica count")
-	// // result, err := UpdateDeploy(req, r.Client)
-	// // if err != nil {
-
-	// // 	log.Error(err, "Failed to update replica count")
-	// // 	return result, err
-	// // }
-
-	// // The following implementation will update the status
-	// meta.SetStatusCondition(&zaproxy.Status.Conditions, metav1.Condition{Type: typeAvailableZAProxy,
-	// 	Status: metav1.ConditionTrue, Reason: "Reconciling",
-	// 	Message: fmt.Sprintf("Deployment for custom resource (%s) with %d replicas created successfully", zaproxy.Name, size)})
-
-	// if err := r.Status().Update(ctx, zaproxy); err != nil {
-	// 	log.Error(err, "Failed to update ZAProxy status")
-	// 	return ctrl.Result{}, err
-	// }
-
 	return ctrl.Result{}, nil
-}
-
-// deploymentForZAProxy returns a ZAProxy Deployment object
-func (r *ZAProxyReconciler) deploymentForZAProxy(
-	zaproxy *zaproxyorgv1alpha1.ZAProxy) (*appsv1.Deployment, error) {
-	ls := labelsForZAProxy(zaproxy.Name)
-	replicas := zaproxy.Spec.Size
-
-	// Get the Operand image
-	image, err := imageForZAProxy()
-	if err != nil {
-		return nil, err
-	}
-
-	dep := &appsv1.Deployment{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      zaproxy.Name,
-			Namespace: zaproxy.Namespace,
-		},
-		Spec: appsv1.DeploymentSpec{
-			Replicas: &replicas,
-			Selector: &metav1.LabelSelector{
-				MatchLabels: ls,
-			},
-			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{
-					Labels: ls,
-				},
-				Spec: corev1.PodSpec{
-					// TODO(user): Uncomment the following code to configure the nodeAffinity expression
-					// according to the platforms which are supported by your solution. It is considered
-					// best practice to support multiple architectures. build your manager image using the
-					// makefile target docker-buildx. Also, you can use docker manifest inspect <image>
-					// to check what are the platforms supported.
-					// More info: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#node-affinity
-					//Affinity: &corev1.Affinity{
-					//	NodeAffinity: &corev1.NodeAffinity{
-					//		RequiredDuringSchedulingIgnoredDuringExecution: &corev1.NodeSelector{
-					//			NodeSelectorTerms: []corev1.NodeSelectorTerm{
-					//				{
-					//					MatchExpressions: []corev1.NodeSelectorRequirement{
-					//						{
-					//							Key:      "kubernetes.io/arch",
-					//							Operator: "In",
-					//							Values:   []string{"amd64", "arm64", "ppc64le", "s390x"},
-					//						},
-					//						{
-					//							Key:      "kubernetes.io/os",
-					//							Operator: "In",
-					//							Values:   []string{"linux"},
-					//						},
-					//					},
-					//				},
-					//			},
-					//		},
-					//	},
-					//},
-					SecurityContext: &corev1.PodSecurityContext{
-						RunAsNonRoot: &[]bool{true}[0],
-						// IMPORTANT: seccomProfile was introduced with Kubernetes 1.19
-						// If you are looking for to produce solutions to be supported
-						// on lower versions you must remove this option.
-						SeccompProfile: &corev1.SeccompProfile{
-							Type: corev1.SeccompProfileTypeRuntimeDefault,
-						},
-					},
-					Containers: []corev1.Container{{
-						Image:           image,
-						Name:            "zaproxy",
-						ImagePullPolicy: corev1.PullIfNotPresent,
-						// Ensure restrictive context for the container
-						// More info: https://kubernetes.io/docs/concepts/security/pod-security-standards/#restricted
-						SecurityContext: &corev1.SecurityContext{
-							// WARNING: Ensure that the image used defines an UserID in the Dockerfile
-							// otherwise the Pod will not run and will fail with "container has runAsNonRoot and image has non-numeric user"".
-							// If you want your workloads admitted in namespaces enforced with the restricted mode in OpenShift/OKD vendors
-							// then, you MUST ensure that the Dockerfile defines a User ID OR you MUST leave the "RunAsNonRoot" and
-							// "RunAsUser" fields empty.
-							RunAsNonRoot: &[]bool{true}[0],
-							// The zaproxy image does not use a non-zero numeric user as the default user.
-							// Due to RunAsNonRoot field being set to true, we need to force the user in the
-							// container to a non-zero numeric user. We do this using the RunAsUser field.
-							// However, if you are looking to provide solution for K8s vendors like OpenShift
-							// be aware that you cannot run under its restricted-v2 SCC if you set this value.
-							RunAsUser:                &[]int64{1001}[0],
-							AllowPrivilegeEscalation: &[]bool{false}[0],
-							Capabilities: &corev1.Capabilities{
-								Drop: []corev1.Capability{
-									"ALL",
-								},
-							},
-						},
-						Ports: []corev1.ContainerPort{{
-							ContainerPort: zaproxy.Spec.ContainerPort,
-							Name:          "zaproxy",
-						}},
-						//Args: []string{"zap-webswing.sh"},
-					}},
-				},
-			},
-		},
-	}
-
-	// Set the ownerRef for the Deployment
-	// More info: https://kubernetes.io/docs/concepts/overview/working-with-objects/owners-dependents/
-	if err := ctrl.SetControllerReference(zaproxy, dep, r.Scheme); err != nil {
-		return nil, err
-	}
-	return dep, nil
 }
 
 // configMapForZAProxy returns a ZAProxy ConfigMap object
@@ -672,12 +445,25 @@ func imageForZAProxy() (string, error) {
 	return image, nil
 }
 
-func getJobPodIP(ctx context.Context, c client.Client, job *kbatch.Job, namespace string) (string, error) {
+func getJob(ctx context.Context, c client.Client, namespacedName types.NamespacedName) (*kbatch.Job, error) {
+
+	jobName := namespacedName.Name + "-job"
+	job := &kbatch.Job{}
+	err := c.Get(ctx, types.NamespacedName{Name: jobName, Namespace: namespacedName.Namespace}, job)
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to get job with name %s in namespace %s: %w", jobName, namespacedName.Namespace, err)
+	}
+
+	return job, err
+}
+
+func getJobPodIP(ctx context.Context, c client.Client, job *kbatch.Job) (string, error) {
 
 	podList := &corev1.PodList{}
 	labelSelector := labels.Set(job.Spec.Selector.MatchLabels).AsSelector()
-	if err := c.List(ctx, podList, client.InNamespace(namespace), client.MatchingLabelsSelector{Selector: labelSelector}); err != nil {
-		return "", fmt.Errorf("failed to list pods: %w", err)
+	if err := c.List(ctx, podList, client.InNamespace(job.Namespace), client.MatchingLabelsSelector{Selector: labelSelector}); err != nil {
+		return "", fmt.Errorf("failed to list pods for job %s in namespace %s: %w", job.Name, job.Namespace, err)
 	}
 
 	for _, pod := range podList.Items {
@@ -686,7 +472,34 @@ func getJobPodIP(ctx context.Context, c client.Client, job *kbatch.Job, namespac
 		}
 	}
 
-	return "", fmt.Errorf("no running pods found for job")
+	return "", fmt.Errorf("no running pods found for job %s in namespace %s", job.Name, job.Namespace)
+}
+
+func getJobContainerPort(job *kbatch.Job) (int32, error) {
+	if len(job.Spec.Template.Spec.Containers) > 0 {
+		if len(job.Spec.Template.Spec.Containers[0].Ports) > 0 {
+			return job.Spec.Template.Spec.Containers[0].Ports[0].ContainerPort, nil
+		}
+		return 0, fmt.Errorf("no ports found for the first container in job %s in namespace %s", job.Name, job.Namespace)
+	}
+	return 0, fmt.Errorf("no containers found in the job %s in namespace %s", job.Name, job.Namespace)
+}
+
+func sendHTTPRequest(ctx context.Context, method, uri string, timeout time.Duration) (*http.Response, error) {
+	req, err := http.NewRequest(method, uri, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request for URI %s: %w", uri, err)
+	}
+
+	client := &http.Client{
+		Timeout: timeout,
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to send request to URL %s: %w", req.URL, err)
+	}
+
+	return resp, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
