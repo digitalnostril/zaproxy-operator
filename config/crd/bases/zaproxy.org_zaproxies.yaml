@@ -41,17 +41,6 @@ spec:
                     type: object
                     x-kubernetes-preserve-unknown-fields: true
                 type: object
-              containerPort:
-                description: Port defines the port that will be used to init the container
-                  with the image
-                format: int32
-                type: integer
-              size:
-                description: Size defines the number of Memcached instances
-                format: int32
-                maximum: 3
-                minimum: 1
-                type: integer
               storageClassName:
                 type: string
             type: object

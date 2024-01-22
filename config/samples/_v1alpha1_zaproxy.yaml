@@ -9,8 +9,6 @@ metadata:
     app.kubernetes.io/created-by: zaproxy-operator
   name: zaproxy-sample
 spec:
-  size: 1
-  containerPort: 8080
   storageClassName: standard
   automation:
     plan:
