@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/digitalnostril/zaproxy-operator/controllers"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -15,6 +16,7 @@ func (h *StartJobHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	const (
 		ErrFailedToCreateJob      = "Failed to create job"
+		ErrFailedToWaitJob        = "Failed to wait for job to be Ready"
 		MsgJobCreatedSuccessfully = "Job created successfully"
 	)
 
@@ -37,6 +39,15 @@ func (h *StartJobHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	setupLog.Info(MsgJobCreatedSuccessfully, namespacedNameToKeyValueSlice(namespacedName)...)
+
+	if strings.ToUpper(r.URL.Query().Get("wait")) == "TRUE" {
+		if _, err := controllers.WaitForJobReady(r.Context(), h.Client, namespacedName); err != nil {
+			setupLog.Error(err, ErrFailedToWaitJob, namespacedNameToKeyValueSlice(namespacedName)...)
+			http.Error(w, ErrFailedToWaitJob, http.StatusInternalServerError)
+			return
+		}
+	}
+
 	respondOK(w, MsgJobCreatedSuccessfully)
 }
 

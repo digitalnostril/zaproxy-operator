@@ -13,6 +13,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -53,6 +54,24 @@ func EndDelayZAPJob(ctx context.Context, c client.Client, namespacedName types.N
 	}
 
 	log.Info("Received response", "Status Code", resp.StatusCode, "Status", resp.Status, "URL", resp.Request.URL, "Job", job.Name, "Namespace", job.Namespace)
+	return ctrl.Result{}, nil
+}
+
+// WaitForJobReady waits for a ZAP instance to be ready.
+func WaitForJobReady(ctx context.Context, c client.Client, namespacedName types.NamespacedName) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	job, err := getJob(ctx, c, namespacedName)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if err := waitForJobReady(ctx, c, job); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Job Ready", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
+
 	return ctrl.Result{}, nil
 }
 
@@ -125,6 +144,19 @@ func constructJob(c client.Client, zaproxy *zaproxyorgv1alpha1.ZAProxy, jobName 
 									ContainerPort: 8080,
 									Name:          "zaproxy",
 								},
+							},
+							StartupProbe: &corev1.Probe{
+								ProbeHandler: corev1.ProbeHandler{
+									HTTPGet: &corev1.HTTPGetAction{
+										Path: "/",
+										Port: intstr.FromInt(8080),
+									},
+								},
+								InitialDelaySeconds: 5,
+								PeriodSeconds:       5,
+								TimeoutSeconds:      3,
+								SuccessThreshold:    1,
+								FailureThreshold:    3,
 							},
 							Args: []string{"./zap.sh", "-cmd", "-autorun", "/zap/config/af-plan.yaml", "-host", "0.0.0.0", "-config", "api.disablekey=true", "-config", "api.addrs.addr.name=.*", "-config", "api.addrs.addr.regex=true"},
 							VolumeMounts: []corev1.VolumeMount{
@@ -226,6 +258,30 @@ func waitForJobDeletion(ctx context.Context, c client.Client, job *kbatch.Job) e
 	}
 
 	return nil
+}
+
+// waitForJobReady waits for the Job for a ZAProxy resource to be ready.
+func waitForJobReady(ctx context.Context, c client.Client, job *kbatch.Job) error {
+
+	deletionCtx, cancel := context.WithDeadline(ctx, time.Now().Add(5*time.Minute))
+	defer cancel()
+
+	for {
+		time.Sleep(time.Second)
+
+		if deletionCtx.Err() != nil {
+			return fmt.Errorf("timed out waiting for job readiness with job name %s in namespace %s: %w", job.Name, job.Namespace, deletionCtx.Err())
+		}
+
+		err := c.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, job)
+		if err != nil {
+			continue
+		}
+
+		if job.Status.Ready != nil && *job.Status.Ready == 0 {
+			return nil
+		}
+	}
 }
 
 // deleteJob deletes the Job for a ZAProxy resource.
