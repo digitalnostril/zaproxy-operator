@@ -1,0 +1,458 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: |-
+      [
+        {
+          "apiVersion": "zaproxy.org/v1alpha1",
+          "kind": "ZAProxy",
+          "metadata": {
+            "labels": {
+              "app.kubernetes.io/created-by": "zaproxy-operator",
+              "app.kubernetes.io/instance": "zaproxy-sample",
+              "app.kubernetes.io/managed-by": "kustomize",
+              "app.kubernetes.io/name": "zaproxy",
+              "app.kubernetes.io/part-of": "zaproxy-operator"
+            },
+            "name": "zaproxy-sample"
+          },
+          "spec": {
+            "automation": {
+              "plan": {
+                "env": {
+                  "contexts": [
+                    {
+                      "authentication": {
+                        "parameters": {},
+                        "verification": {
+                          "method": "response",
+                          "pollFrequency": 60,
+                          "pollUnits": "requests"
+                        }
+                      },
+                      "excludePaths": [],
+                      "includePaths": [],
+                      "name": "Default Context",
+                      "sessionManagement": {
+                        "method": "cookie",
+                        "parameters": {}
+                      },
+                      "technology": {
+                        "exclude": []
+                      },
+                      "urls": [
+                        "https://blog.digitalnostril.com"
+                      ]
+                    }
+                  ],
+                  "parameters": {
+                    "failOnError": true,
+                    "failOnWarning": false,
+                    "progressToStdout": true
+                  },
+                  "vars": {}
+                },
+                "jobs": [
+                  {
+                    "name": "passiveScan-config",
+                    "parameters": {
+                      "disableAllRules": false,
+                      "enableTags": false,
+                      "scanOnlyInScope": true
+                    },
+                    "rules": [],
+                    "type": "passiveScan-config"
+                  },
+                  {
+                    "name": "spider",
+                    "parameters": {},
+                    "tests": [
+                      {
+                        "name": "At least 100 URLs found",
+                        "onFail": "INFO",
+                        "operator": "\u003e=",
+                        "site": "",
+                        "statistic": "automation.spider.urls.added",
+                        "type": "stats",
+                        "value": 100
+                      }
+                    ],
+                    "type": "spider"
+                  },
+                  {
+                    "name": "passiveScan-wait",
+                    "parameters": {},
+                    "type": "passiveScan-wait"
+                  },
+                  {
+                    "name": "report",
+                    "parameters": {
+                      "reportDescription": "",
+                      "reportDir": "/zap/reports",
+                      "reportTitle": "ZAP Scanning Report",
+                      "template": "risk-confidence-html"
+                    },
+                    "type": "report"
+                  },
+                  {
+                    "name": "delay",
+                    "parameters": {
+                      "fileName": "",
+                      "time": "600"
+                    },
+                    "type": "delay"
+                  }
+                ]
+              }
+            },
+            "storageClassName": "standard"
+          }
+        }
+      ]
+    capabilities: Basic Install
+    createdAt: "2024-02-28T13:04:33Z"
+    operators.operatorframework.io/builder: operator-sdk-v1.32.0
+    operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
+  name: zaproxy-operator.v0.0.63
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: ZAProxy is the Schema for the zaproxies API
+      displayName: ZAProxy
+      kind: ZAProxy
+      name: zaproxies.zaproxy.org
+      resources:
+      - kind: Deployment
+        name: zaproxy-deployment
+        version: v1
+      specDescriptors:
+      - displayName: Automation
+        path: automation
+      - displayName: Plan
+        path: automation.plan
+      - displayName: Storage Class Name
+        path: storageClassName
+      statusDescriptors:
+      - displayName: Conditions
+        path: conditions
+      version: v1alpha1
+  description: zaproxy-operator
+  displayName: zaproxy-operator
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      clusterPermissions:
+      - rules:
+        - apiGroups:
+          - batch
+          resources:
+          - jobs
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - batch
+          resources:
+          - jobs/status
+          verbs:
+          - get
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - events
+          verbs:
+          - create
+          - patch
+        - apiGroups:
+          - ""
+          resources:
+          - persistentvolumeclaims
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - ""
+          resources:
+          - pods
+          verbs:
+          - get
+          - list
+          - watch
+        - apiGroups:
+          - zaproxy.org
+          resources:
+          - zaproxies
+          verbs:
+          - create
+          - delete
+          - get
+          - list
+          - patch
+          - update
+          - watch
+        - apiGroups:
+          - zaproxy.org
+          resources:
+          - zaproxies/finalizers
+          verbs:
+          - update
+        - apiGroups:
+          - zaproxy.org
+          resources:
+          - zaproxies/status
+          verbs:
+          - get
+          - patch
+          - update
+        - apiGroups:
+          - authentication.k8s.io
+          resources:
+          - tokenreviews
+          verbs:
+          - create
+        - apiGroups:
+          - authorization.k8s.io
+          resources:
+          - subjectaccessreviews
+          verbs:
+          - create
+        serviceAccountName: zaproxy-operator-controller-manager
+      deployments:
+      - label:
+          app.kubernetes.io/component: manager
+          app.kubernetes.io/created-by: zaproxy-operator
+          app.kubernetes.io/instance: controller-manager
+          app.kubernetes.io/managed-by: kustomize
+          app.kubernetes.io/name: deployment
+          app.kubernetes.io/part-of: zaproxy-operator
+          control-plane: controller-manager
+        name: zaproxy-operator-controller-manager
+        spec:
+          replicas: 1
+          selector:
+            matchLabels:
+              control-plane: controller-manager
+          strategy: {}
+          template:
+            metadata:
+              annotations:
+                kubectl.kubernetes.io/default-container: manager
+              labels:
+                control-plane: controller-manager
+            spec:
+              affinity:
+                nodeAffinity:
+                  requiredDuringSchedulingIgnoredDuringExecution:
+                    nodeSelectorTerms:
+                    - matchExpressions:
+                      - key: kubernetes.io/arch
+                        operator: In
+                        values:
+                        - amd64
+                        - arm64
+                        - ppc64le
+                        - s390x
+                      - key: kubernetes.io/os
+                        operator: In
+                        values:
+                        - linux
+              containers:
+              - args:
+                - --secure-listen-address=0.0.0.0:8443
+                - --upstream=http://127.0.0.1:8080/
+                - --logtostderr=true
+                - --v=0
+                image: gcr.io/kubebuilder/kube-rbac-proxy:v0.13.1
+                name: kube-rbac-proxy
+                ports:
+                - containerPort: 8443
+                  name: https
+                  protocol: TCP
+                resources:
+                  limits:
+                    cpu: 500m
+                    memory: 128Mi
+                  requests:
+                    cpu: 5m
+                    memory: 64Mi
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                    - ALL
+              - args:
+                - --health-probe-bind-address=:8081
+                - --metrics-bind-address=127.0.0.1:8080
+                - --leader-elect
+                command:
+                - /manager
+                env:
+                - name: ZAPROXY_IMAGE
+                  value: ghcr.io/zaproxy/zaproxy:stable
+                image: ghcr.io/digitalnostril/zaproxy-operator:0.0.63
+                livenessProbe:
+                  httpGet:
+                    path: /healthz
+                    port: 8081
+                  initialDelaySeconds: 15
+                  periodSeconds: 20
+                name: manager
+                ports:
+                - containerPort: 9443
+                  name: webhook-server
+                  protocol: TCP
+                readinessProbe:
+                  httpGet:
+                    path: /readyz
+                    port: 8081
+                  initialDelaySeconds: 5
+                  periodSeconds: 10
+                resources:
+                  limits:
+                    cpu: 500m
+                    memory: 128Mi
+                  requests:
+                    cpu: 10m
+                    memory: 64Mi
+                securityContext:
+                  allowPrivilegeEscalation: false
+                  capabilities:
+                    drop:
+                    - ALL
+                volumeMounts:
+                - mountPath: /tmp/k8s-webhook-server/serving-certs
+                  name: cert
+                  readOnly: true
+              securityContext:
+                runAsNonRoot: true
+              serviceAccountName: zaproxy-operator-controller-manager
+              terminationGracePeriodSeconds: 10
+              volumes:
+              - name: cert
+                secret:
+                  defaultMode: 420
+                  secretName: webhook-server-cert
+      permissions:
+      - rules:
+        - apiGroups:
+          - ""
+          resources:
+          - configmaps
+          verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+        - apiGroups:
+          - coordination.k8s.io
+          resources:
+          - leases
+          verbs:
+          - get
+          - list
+          - watch
+          - create
+          - update
+          - patch
+          - delete
+        - apiGroups:
+          - ""
+          resources:
+          - events
+          verbs:
+          - create
+          - patch
+        serviceAccountName: zaproxy-operator-controller-manager
+    strategy: deployment
+  installModes:
+  - supported: false
+    type: OwnNamespace
+  - supported: false
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - zaproxy
+  links:
+  - name: Zaproxy Operator
+    url: https://zaproxy-operator.domain
+  maintainers:
+  - email: trevor@digitalnostril.com
+    name: trevor
+  maturity: alpha
+  provider:
+    name: digitalnostril
+  version: 0.0.63
+  webhookdefinitions:
+  - admissionReviewVersions:
+    - v1
+    containerPort: 443
+    deploymentName: zaproxy-operator-controller-manager
+    failurePolicy: Fail
+    generateName: mzaproxy.kb.io
+    rules:
+    - apiGroups:
+      - zaproxy.org
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - zaproxies
+    sideEffects: None
+    targetPort: 9443
+    type: MutatingAdmissionWebhook
+    webhookPath: /mutate-zaproxy-org-v1alpha1-zaproxy
+  - admissionReviewVersions:
+    - v1
+    containerPort: 443
+    deploymentName: zaproxy-operator-controller-manager
+    failurePolicy: Fail
+    generateName: vzaproxy.kb.io
+    rules:
+    - apiGroups:
+      - zaproxy.org
+      apiVersions:
+      - v1alpha1
+      operations:
+      - CREATE
+      - UPDATE
+      resources:
+      - zaproxies
+    sideEffects: None
+    targetPort: 9443
+    type: ValidatingAdmissionWebhook
+    webhookPath: /validate-zaproxy-org-v1alpha1-zaproxy

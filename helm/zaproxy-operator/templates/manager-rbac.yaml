@@ -1,0 +1,108 @@
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "zaproxy-operator.fullname" . }}-manager-role
+  labels:
+  {{- include "zaproxy-operator.labels" . | nindent 4 }}
+rules:
+- apiGroups:
+  - batch
+  resources:
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - jobs/status
+  verbs:
+  - get
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - events
+  verbs:
+  - create
+  - patch
+- apiGroups:
+  - ""
+  resources:
+  - persistentvolumeclaims
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - ""
+  resources:
+  - pods
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - zaproxy.org
+  resources:
+  - zaproxies
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - zaproxy.org
+  resources:
+  - zaproxies/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - zaproxy.org
+  resources:
+  - zaproxies/status
+  verbs:
+  - get
+  - patch
+  - update
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "zaproxy-operator.fullname" . }}-manager-rolebinding
+  labels:
+    app.kubernetes.io/component: rbac
+    app.kubernetes.io/created-by: zaproxy-operator
+    app.kubernetes.io/part-of: zaproxy-operator
+  {{- include "zaproxy-operator.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: '{{ include "zaproxy-operator.fullname" . }}-manager-role'
+subjects:
+- kind: ServiceAccount
+  name: '{{ include "zaproxy-operator.fullname" . }}-controller-manager'
+  namespace: '{{ .Release.Namespace }}'

@@ -1,0 +1,61 @@
+apiVersion: operators.coreos.com/v1alpha1
+kind: ClusterServiceVersion
+metadata:
+  annotations:
+    alm-examples: '[]'
+    capabilities: Basic Install
+  name: zaproxy-operator.v0.0.0
+  namespace: placeholder
+spec:
+  apiservicedefinitions: {}
+  customresourcedefinitions:
+    owned:
+    - description: ZAProxy is the Schema for the zaproxies API
+      displayName: ZAProxy
+      kind: ZAProxy
+      name: zaproxies.zaproxy.org
+      resources:
+      - kind: Deployment
+        name: zaproxy-deployment
+        version: v1
+      specDescriptors:
+      - displayName: Automation
+        path: automation
+      - displayName: Plan
+        path: automation.plan
+      - displayName: Storage Class Name
+        path: storageClassName
+      statusDescriptors:
+      - displayName: Conditions
+        path: conditions
+      version: v1alpha1
+  description: zaproxy-operator
+  displayName: zaproxy-operator
+  icon:
+  - base64data: ""
+    mediatype: ""
+  install:
+    spec:
+      deployments: null
+    strategy: ""
+  installModes:
+  - supported: false
+    type: OwnNamespace
+  - supported: false
+    type: SingleNamespace
+  - supported: false
+    type: MultiNamespace
+  - supported: true
+    type: AllNamespaces
+  keywords:
+  - zaproxy
+  links:
+  - name: Zaproxy Operator
+    url: https://zaproxy-operator.domain
+  maintainers:
+  - email: trevor@digitalnostril.com
+    name: trevor
+  maturity: alpha
+  provider:
+    name: digitalnostril
+  version: 0.0.0

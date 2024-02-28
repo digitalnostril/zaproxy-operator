@@ -1,0 +1,29 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: MutatingWebhookConfiguration
+metadata:
+  name: {{ include "zaproxy-operator.fullname" . }}-mutating-webhook-configuration
+  annotations:
+    cert-manager.io/inject-ca-from: {{ .Release.Namespace }}/{{ include "zaproxy-operator.fullname" . }}-serving-cert
+  labels:
+  {{- include "zaproxy-operator.labels" . | nindent 4 }}
+webhooks:
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: '{{ include "zaproxy-operator.fullname" . }}-webhook-service'
+      namespace: '{{ .Release.Namespace }}'
+      path: /mutate-zaproxy-org-v1alpha1-zaproxy
+  failurePolicy: Fail
+  name: mzaproxy.kb.io
+  rules:
+  - apiGroups:
+    - zaproxy.org
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - zaproxies
+  sideEffects: None
