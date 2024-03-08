@@ -57,7 +57,7 @@ jobs:
       - name: Push and Sign Chart
         run: |
           helm package helm/zaproxy-operator
-          helm push zaproxy-operator-0.1.0.tgz oci://ghcr.io/digitalnostril &> .output
+          helm push zaproxy-operator-0.1.0.tgz oci://ghcr.io/digitalnostril/helm &> .output
           cat .output
           DIGEST=$(cat .output | awk -F "[, ]+" '/Digest/{print $NF}')
           cosign sign --yes ghcr.io/digitalnostril/zaproxy-operator@${DIGEST}
