@@ -59,4 +59,4 @@ jobs:
           helm package helm/zaproxy-operator
           helm push zaproxy-operator-0.1.0.tgz oci://ghcr.io/digitalnostril > .digest
           cat .digest | awk -F "[, ]+" '/Digest/{print $NF}'
-          cosign sign --yes ghcr.io/digitalnostril/zaproxy-operator@$(cat .digest | awk -F "[, ]+" '/Digest/{print $NF}')
+          cosign sign --yes ghcr.io/digitalnostril/zaproxy-operator@(cat .digest | awk -F "[, ]+" '/Digest/{print $NF}')
