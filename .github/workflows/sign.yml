@@ -38,7 +38,7 @@ jobs:
 #          context: .
 #          file: ./Dockerfile
 #          platforms: linux/amd64,linux/arm64
-#          attests: type=sbom
+#          sbom: true
 #          build-args: |
 #            REVISON=${{ github.sha }}
 #          tags: |
