@@ -27,5 +27,8 @@ jobs:
         with:
           cosign-release: 'v2.2.3'
 
-      - name: Sign the container image
+      - name: Sign image
+        run: cosign sign --yes ghcr.io/digitalnostril/zaproxy-operator:0.0.63
+
+      - name: Sign chart
         run: cosign sign --yes ghcr.io/digitalnostril/zaproxy-operator:0.1.0
