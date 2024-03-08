@@ -1,0 +1,24 @@
+name: Sign Chart
+
+on: workflow_dispatch
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@main
+        with:
+          cosign-release: 'v2.2.3'
+
+      - name: Sign the container image
+        run: cosign sign ghcr.io/digitalnostril/zaproxy-operator:0.1.0
