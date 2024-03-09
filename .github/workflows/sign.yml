@@ -29,30 +29,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-#      - name: Build and push Docker images
-#        uses: docker/build-push-action@af5a7ed5ba88268d5278f7203fb52cd833f66d6e
-#        id: build-and-push
-#        with:
-#          push: true
-#          builder: ${{ steps.buildx.outputs.name }}
-#          context: .
-#          file: ./Dockerfile
-#          platforms: linux/amd64,linux/arm64
-#          sbom: true
-#          build-args: |
-#            REVISON=${{ github.sha }}
-#          tags: |
-#            ghcr.io/digitalnostril/zaproxy-operator:latest
+      - name: Build and push Docker images
+        uses: docker/build-push-action@af5a7ed5ba88268d5278f7203fb52cd833f66d6e
+        id: build-and-push
+        with:
+          push: true
+          builder: ${{ steps.buildx.outputs.name }}
+          context: .
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/arm64
+          sbom: true
+          build-args: |
+            REVISON=${{ github.sha }}
+          tags: |
+            ghcr.io/digitalnostril/zaproxy-operator:latest
 
       - name: Install cosign
         uses: sigstore/cosign-installer@e1523de7571e31dbe865fd2e80c5c7c23ae71eb4
         with:
           cosign-release: 'v2.2.3'
 
-#      - name: Sign image
-#        env:
-#          DIGEST: ${{ steps.build-and-push.outputs.digest }}
-#        run: cosign sign --yes ghcr.io/digitalnostril/zaproxy-operator@${DIGEST}
+      - name: Sign image
+        env:
+          DIGEST: ${{ steps.build-and-push.outputs.digest }}
+        run: cosign sign --yes ghcr.io/digitalnostril/zaproxy-operator@${DIGEST}
 
       - name: Push and Sign Chart
         run: |
