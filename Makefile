@@ -289,3 +289,5 @@ $(HELMIFY): $(LOCALBIN)
     
 helm: manifests kustomize helmify
 	$(KUSTOMIZE) build config/default | $(HELMIFY) helm/zaproxy-operator
+	sed -i 's/^version: .*/version: $(VERSION)/' ./helm/zaproxy-operator/Chart.yaml
+	sed -i 's/^appVersion: .*/appVersion: "$(VERSION)"/' ./helm/zaproxy-operator/Chart.yaml

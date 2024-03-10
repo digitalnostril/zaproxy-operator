@@ -15,6 +15,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
 
+      - name: Get version
+        id: vars
+        run : echo "version=$(grep -oP '^VERSION \?= \K.*' Makefile)" >> $GITHUB_OUTPUT
+
       - name: Setup QEMU
         uses: docker/setup-qemu-action@68827325e0b33c7199eb31dd4e31fbe9023e06e3
 
@@ -43,6 +47,7 @@ jobs:
             REVISON=${{ github.sha }}
           tags: |
             ghcr.io/digitalnostril/zaproxy-operator:latest
+            ghcr.io/digitalnostril/zaproxy-operator:${{ steps.vars.outputs.version }}
 
       - name: Install cosign
         uses: sigstore/cosign-installer@e1523de7571e31dbe865fd2e80c5c7c23ae71eb4
@@ -55,9 +60,11 @@ jobs:
         run: cosign sign --yes ghcr.io/digitalnostril/zaproxy-operator@${DIGEST}
 
       - name: Push and Sign Chart
+        env:
+          VERSION: ${{ steps.vars.outputs.version }}
         run: |
           helm package helm/zaproxy-operator
-          helm push zaproxy-operator-0.1.0.tgz oci://ghcr.io/digitalnostril/helm &> .output
+          helm push zaproxy-operator-${VERSION}.tgz oci://ghcr.io/digitalnostril/helm &> .output
           cat .output
           DIGEST=$(cat .output | awk -F "[, ]+" '/Digest/{print $NF}')
           cosign sign --yes ghcr.io/digitalnostril/helm/zaproxy-operator@${DIGEST}
