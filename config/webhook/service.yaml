@@ -16,8 +16,10 @@ spec:
     - port: 443
       protocol: TCP
       targetPort: 9443
+      name: https
     - port: 80
       protocol: TCP
       targetPort: 8000
+      name: http
   selector:
     control-plane: controller-manager
