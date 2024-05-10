@@ -31,6 +31,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -67,6 +68,7 @@ type ZAProxyReconciler struct {
 //+kubebuilder:rbac:groups=batch,resources=jobs/status,verbs=get
 //+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 //+kubebuilder:rbac:groups=core,resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=services,verbs=get;list;watch;create;update;patch;delete
 
 // Reconcile is part of the main Kubernetes reconciliation loop. It compares the desired state
 // specified by the ZAProxy object against the actual cluster state. It then performs operations
@@ -112,6 +114,10 @@ func (r *ZAProxyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 
 	if err := r.reconcilePVC(ctx, zaproxy); err != nil {
 		return ctrl.Result{}, r.setReconcileError(ctx, zaproxy, err, fmt.Sprintf("Failed to reconcile PVC %v", req.NamespacedName))
+	}
+
+	if err := r.reconcileService(ctx, zaproxy); err != nil {
+		return ctrl.Result{}, r.setReconcileError(ctx, zaproxy, err, fmt.Sprintf("Failed to reconcile Service %v", req.NamespacedName))
 	}
 
 	log.Info("Reconciliation Complete", "Namespace", req.NamespacedName.Namespace, "Name", req.NamespacedName.Name)
@@ -207,6 +213,33 @@ func (r *ZAProxyReconciler) reconcilePVC(ctx context.Context, zaproxy *zaproxyor
 	return nil
 }
 
+func (r *ZAProxyReconciler) reconcileService(ctx context.Context, zaproxy *zaproxyorgv1alpha1.ZAProxy) error {
+	log := log.FromContext(ctx)
+
+	service := &corev1.Service{}
+	err := r.Get(ctx, types.NamespacedName{Name: zaproxy.Name, Namespace: zaproxy.Namespace}, service)
+
+	if err != nil && apierrors.IsNotFound(err) {
+
+		service, err = r.serviceForZAProxy(zaproxy)
+		if err != nil {
+			return fmt.Errorf("Failed to define a new Service %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+		}
+		if err := r.Create(ctx, service); err != nil {
+			return fmt.Errorf("Failed to create new Service %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+		}
+
+		log.Info("Successfully created new Service", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
+
+		return nil
+
+	} else if err != nil {
+		return fmt.Errorf("Failed to get Service %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+	}
+
+	return nil
+}
+
 // configMapForZAProxy returns a ZAProxy ConfigMap object
 func (r *ZAProxyReconciler) configMapForZAProxy(zaproxy *zaproxyorgv1alpha1.ZAProxy) (*corev1.ConfigMap, error) {
 	var plan map[string]interface{}
@@ -262,6 +295,33 @@ func (r *ZAProxyReconciler) pvcForZAProxy(zaproxy *zaproxyorgv1alpha1.ZAProxy) (
 		return nil, err
 	}
 	return pvc, nil
+}
+
+func (r *ZAProxyReconciler) serviceForZAProxy(zaproxy *zaproxyorgv1alpha1.ZAProxy) (*corev1.Service, error) {
+
+	service := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Labels:      labelsForZAProxy(zaproxy.Name),
+			Annotations: make(map[string]string),
+			Name:        zaproxy.Name,
+			Namespace:   zaproxy.Namespace,
+		},
+		Spec: corev1.ServiceSpec{
+			Selector: labelsForZAProxy(zaproxy.Name),
+			Ports: []corev1.ServicePort{
+				{
+					Port:       8080,
+					TargetPort: intstr.FromInt(8080),
+					Name:       "zaproxy",
+				},
+			},
+		},
+	}
+	if err := ctrl.SetControllerReference(zaproxy, service, r.Scheme); err != nil {
+		return nil, err
+	}
+
+	return service, nil
 }
 
 // imageForZAProxy gets the Operand image which is managed by this controller
