@@ -17,8 +17,14 @@ limitations under the License.
 package main
 
 import (
+	"context"
 	"flag"
+	"fmt"
+	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	// Import all Kubernetes client auth plugins (e.g. Azure, GCP, OIDC, etc.)
 	// to ensure that exec-entrypoint and run can make use of them.
@@ -115,9 +121,45 @@ func main() {
 		os.Exit(1)
 	}
 
-	setupLog.Info("starting manager")
-	if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
-		setupLog.Error(err, "problem running manager")
-		os.Exit(1)
+	mux := http.NewServeMux()
+	mux.Handle("/zap/start", &StartJobHandler{Client: mgr.GetClient()})
+	mux.Handle("/zap/enddelay", &EndDelayZAPJobHandler{Client: mgr.GetClient()})
+
+	httpSrv := &http.Server{
+		Addr:         ":8000",
+		WriteTimeout: 10 * time.Second,
+		ReadTimeout:  10 * time.Second,
+		Handler:      mux,
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT)
+
+	go func() {
+		if err := httpSrv.ListenAndServe(); err != nil { //nolint:gosec // it's fine to not set timeouts here
+			setupLog.Error(err, "problem running custom webhook server")
+		}
+	}()
+
+	go func() {
+		setupLog.Info("starting manager")
+		if err := mgr.Start(ctrl.SetupSignalHandler()); err != nil {
+			setupLog.Error(err, "problem running manager")
+			os.Exit(1)
+		}
+	}()
+
+	defer func() {
+		if err := httpSrv.Shutdown(ctx); err != nil {
+			fmt.Println("error when shutting down the http server: ", err)
+		}
+	}()
+
+	sig := <-sigs
+	fmt.Println(sig)
+
+	cancel()
+
+	fmt.Println("service has shutdown")
 }
