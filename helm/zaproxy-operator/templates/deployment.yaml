@@ -75,6 +75,9 @@ spec:
         - containerPort: 9443
           name: webhook-server
           protocol: TCP
+        - containerPort: 8000
+          name: http-server
+          protocol: TCP
         readinessProbe:
           httpGet:
             path: /readyz
