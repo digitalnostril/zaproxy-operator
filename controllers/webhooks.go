@@ -75,6 +75,24 @@ func WaitForJobReady(ctx context.Context, c client.Client, namespacedName types.
 	return ctrl.Result{}, nil
 }
 
+// WaitForJobCompletion waits for a ZAP instance job to be completed.
+func WaitForJobCompletion(ctx context.Context, c client.Client, namespacedName types.NamespacedName) (ctrl.Result, error) {
+	log := log.FromContext(ctx)
+
+	job, err := getJob(ctx, c, namespacedName)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if err := waitForJobCompletion(ctx, c, job); err != nil {
+		return ctrl.Result{}, err
+	}
+
+	log.Info("Job Completed", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
+
+	return ctrl.Result{}, nil
+}
+
 // CreateJob creates a ZAP instance for a ZAProxy resource as a Job.
 func CreateJob(ctx context.Context, c client.Client, namespacedName types.NamespacedName) (ctrl.Result, error) {
 	log := log.FromContext(ctx)
@@ -279,6 +297,27 @@ func waitForJobReady(ctx context.Context, c client.Client, job *kbatch.Job) erro
 		}
 
 		if job.Status.Ready != nil && *job.Status.Ready == 0 {
+			return nil
+		}
+	}
+}
+
+// waitForJobCompletion waits for the Job for a ZAProxy resource to be completed.
+func waitForJobCompletion(ctx context.Context, c client.Client, job *kbatch.Job) error {
+
+	for {
+		time.Sleep(time.Second)
+
+		if ctx.Err() != nil {
+			return fmt.Errorf("timed out waiting for job completion with job name %s in namespace %s: %w", job.Name, job.Namespace, ctx.Err())
+		}
+
+		err := c.Get(ctx, types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, job)
+		if err != nil {
+			continue
+		}
+
+		if job.Status.CompletionTime != nil {
 			return nil
 		}
 	}

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 
 	"gopkg.in/yaml.v2"
@@ -180,6 +181,21 @@ func (r *ZAProxyReconciler) reconcileConfigMap(ctx context.Context, zaproxy *zap
 
 	} else if err != nil {
 		return fmt.Errorf("Failed to get ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+	} else {
+		// ConfigMap was found, check if it needs to be updated
+		updatedConfigMap, err := r.configMapForZAProxy(zaproxy)
+		if err != nil {
+			return fmt.Errorf("Failed to define updated ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+		}
+
+		if !reflect.DeepEqual(configMap.Data, updatedConfigMap.Data) {
+			// The current state is different from the desired state, update the ConfigMap
+			configMap.Data = updatedConfigMap.Data
+			if err := r.Update(ctx, configMap); err != nil {
+				return fmt.Errorf("Failed to update ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+			}
+			log.Info("Successfully updated ConfigMap", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
+		}
 	}
 
 	return nil

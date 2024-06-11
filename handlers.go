@@ -83,3 +83,36 @@ func (h *EndDelayZAPJobHandler) ServeHTTP(w http.ResponseWriter, r *http.Request
 	setupLog.Info(MsgJobEndedSuccessfully, namespacedNameToKeyValueSlice(namespacedName)...)
 	respondOK(w, MsgJobEndedSuccessfully)
 }
+
+type WaitCompletionJobHandler struct {
+	Client client.Client
+}
+
+func (h *WaitCompletionJobHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	const (
+		ErrFailedToWaitJob = "Failed to wait for job to be Completed"
+		MsgJobCompleted    = "Job Completed"
+	)
+
+	values, err := retrieveAndValidateQueryParams(r, "name", "namespace")
+	if err != nil {
+		setupLog.Error(err, err.Error())
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	namespacedName := client.ObjectKey{
+		Namespace: values["namespace"],
+		Name:      values["name"],
+	}
+
+	if _, err := controllers.WaitForJobCompletion(r.Context(), h.Client, namespacedName); err != nil {
+		setupLog.Error(err, ErrFailedToWaitJob, namespacedNameToKeyValueSlice(namespacedName)...)
+		http.Error(w, ErrFailedToWaitJob, http.StatusInternalServerError)
+		return
+	}
+
+	setupLog.Info(MsgJobCompleted, namespacedNameToKeyValueSlice(namespacedName)...)
+	respondOK(w, MsgJobCompleted)
+}
