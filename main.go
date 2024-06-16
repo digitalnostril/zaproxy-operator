@@ -98,6 +98,7 @@ func main() {
 	mgr.GetWebhookServer().Register("/zap/start", &StartJobHandler{Client: mgr.GetClient()})
 	mgr.GetWebhookServer().Register("/zap/enddelay", &EndDelayZAPJobHandler{Client: mgr.GetClient()})
 	mgr.GetWebhookServer().Register("/zap/waitcompletion", &WaitCompletionJobHandler{Client: mgr.GetClient()})
+	mgr.GetWebhookServer().Register("/zap/ready", &ReadyJobHandler{Client: mgr.GetClient()})
 
 	if err = (&controllers.ZAProxyReconciler{
 		Client:   mgr.GetClient(),
@@ -126,6 +127,7 @@ func main() {
 	mux.Handle("/zap/start", &StartJobHandler{Client: mgr.GetClient()})
 	mux.Handle("/zap/enddelay", &EndDelayZAPJobHandler{Client: mgr.GetClient()})
 	mux.Handle("/zap/waitcompletion", &WaitCompletionJobHandler{Client: mgr.GetClient()})
+	mux.Handle("/zap/ready", &ReadyJobHandler{Client: mgr.GetClient()})
 
 	httpSrv := &http.Server{
 		Addr:         ":8000",

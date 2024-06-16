@@ -116,3 +116,36 @@ func (h *WaitCompletionJobHandler) ServeHTTP(w http.ResponseWriter, r *http.Requ
 	setupLog.Info(MsgJobCompleted, namespacedNameToKeyValueSlice(namespacedName)...)
 	respondOK(w, MsgJobCompleted)
 }
+
+type ReadyJobHandler struct {
+	Client client.Client
+}
+
+func (h *ReadyJobHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+
+	const (
+		MsgJobNotReady = "Job not ready"
+		MsgJobReady    = "Job ready"
+	)
+
+	values, err := retrieveAndValidateQueryParams(r, "name", "namespace")
+	if err != nil {
+		setupLog.Error(err, err.Error())
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	namespacedName := client.ObjectKey{
+		Namespace: values["namespace"],
+		Name:      values["name"],
+	}
+
+	if _, err := controllers.JobReady(r.Context(), h.Client, namespacedName); err != nil {
+		setupLog.Info(MsgJobNotReady, namespacedNameToKeyValueSlice(namespacedName)...)
+		http.Error(w, MsgJobNotReady, http.StatusInternalServerError)
+		return
+	}
+
+	setupLog.Info(MsgJobReady, namespacedNameToKeyValueSlice(namespacedName)...)
+	respondOK(w, MsgJobReady)
+}

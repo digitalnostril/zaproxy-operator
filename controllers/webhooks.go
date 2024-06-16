@@ -27,7 +27,7 @@ func EndDelayZAPJob(ctx context.Context, c client.Client, namespacedName types.N
 
 	job, err := getJob(ctx, c, namespacedName)
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, nil
 	}
 
 	ip, err := getJobPodIP(ctx, c, job)
@@ -91,6 +91,20 @@ func WaitForJobCompletion(ctx context.Context, c client.Client, namespacedName t
 	log.Info("Job Completed", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
 
 	return ctrl.Result{}, nil
+}
+
+// JobReady checks if a ZAP instance job is ready.
+func JobReady(ctx context.Context, c client.Client, namespacedName types.NamespacedName) (ctrl.Result, error) {
+	job, err := getJob(ctx, c, namespacedName)
+	if err != nil {
+		return ctrl.Result{}, err
+	}
+
+	if isJobReady(ctx, job) {
+		return ctrl.Result{}, nil
+	}
+
+	return ctrl.Result{}, fmt.Errorf("job %s in namespace %s is not ready", namespacedName.Name, namespacedName.Namespace)
 }
 
 // CreateJob creates a ZAP instance for a ZAProxy resource as a Job.
@@ -249,6 +263,18 @@ func isJobFinished(ctx context.Context, job *kbatch.Job) bool {
 			log.Info("Job finished", "job", job)
 			return true
 		}
+	}
+
+	return false
+}
+
+// isJobReady checks if the Kubernetes Job is ready.
+func isJobReady(ctx context.Context, job *kbatch.Job) bool {
+	log := log.FromContext(ctx)
+
+	if *job.Status.Ready > 0 {
+		log.Info("Job is ready", "job", job)
+		return true
 	}
 
 	return false

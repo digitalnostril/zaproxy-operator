@@ -12,9 +12,14 @@ metadata:
   name: zaproxy-operator-webhook-service
 spec:
   ports:
-  - port: 443
+  - name: https
+    port: 443
     protocol: TCP
     targetPort: 9443
+  - name: http
+    port: 80
+    protocol: TCP
+    targetPort: 8000
   selector:
     control-plane: controller-manager
 status:
