@@ -32,7 +32,7 @@ func EndDelayZAPJob(ctx context.Context, c client.Client, namespacedName types.N
 
 	ip, err := getJobPodIP(ctx, c, job)
 	if err != nil {
-		return ctrl.Result{}, err
+		return ctrl.Result{}, nil
 	}
 
 	port, err := getJobContainerPort(job)
@@ -133,6 +133,9 @@ func CreateJob(ctx context.Context, c client.Client, namespacedName types.Namesp
 		if err := deleteJob(ctx, c, job); err != nil {
 			return ctrl.Result{}, err
 		}
+	} else {
+		log.Info("Job already exists", "Job.Namespace", job.Namespace, "Job.Name", job.Name)
+		return ctrl.Result{}, nil
 	}
 
 	job, err = constructJob(c, zaproxy, jobName, image)

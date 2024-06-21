@@ -34,7 +34,7 @@ controllerManager:
       zaproxyImage: ghcr.io/zaproxy/zaproxy:stable
     image:
       repository: ghcr.io/digitalnostril/zaproxy-operator
-      tag: 0.0.83
+      tag: 0.0.84
     resources:
       limits:
         cpu: 500m

@@ -111,10 +111,10 @@ metadata:
         }
       ]
     capabilities: Basic Install
-    createdAt: "2024-06-16T17:52:16Z"
+    createdAt: "2024-06-21T20:58:48Z"
     operators.operatorframework.io/builder: operator-sdk-v1.32.0
     operators.operatorframework.io/project_layout: go.kubebuilder.io/v3
-  name: zaproxy-operator.v0.0.83
+  name: zaproxy-operator.v0.0.84
   namespace: placeholder
 spec:
   apiservicedefinitions: {}
@@ -328,7 +328,7 @@ spec:
                 env:
                 - name: ZAPROXY_IMAGE
                   value: ghcr.io/zaproxy/zaproxy:stable
-                image: ghcr.io/digitalnostril/zaproxy-operator:0.0.83
+                image: ghcr.io/digitalnostril/zaproxy-operator:0.0.84
                 livenessProbe:
                   httpGet:
                     path: /healthz
@@ -429,7 +429,7 @@ spec:
   maturity: alpha
   provider:
     name: digitalnostril
-  version: 0.0.83
+  version: 0.0.84
   webhookdefinitions:
   - admissionReviewVersions:
     - v1
