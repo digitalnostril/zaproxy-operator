@@ -14,6 +14,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var _ = Describe("ZAProxy controller", func() {
@@ -71,6 +72,43 @@ var _ = Describe("ZAProxy controller", func() {
 				expectedData := map[string]string{
 					"af-plan.yaml": string(planStr),
 				}
+				g.Expect(cm.Data).To(Equal(expectedData))
+			}, timeout, interval).Should(Succeed())
+		})
+
+		It("Should update the ConfigMap when ZAProxy is updated", func() {
+			// Prepare the expected updated ConfigMap data
+			var currentPlan map[string]interface{}
+			Expect(json.Unmarshal(zaproxy.Spec.Automation.Plan.Raw, &currentPlan)).To(Succeed())
+
+			parameters, ok := currentPlan["plan"].(map[string]interface{})["env"].(map[string]interface{})["parameters"].(map[string]interface{})
+			Expect(ok).To(BeTrue())
+
+			parameters["failOnWarning"] = true
+
+			updatedPlanRaw, err := json.Marshal(currentPlan)
+			Expect(err).NotTo(HaveOccurred())
+			updatedZAProxy := zaproxy.DeepCopy()
+			updatedZAProxy.Spec.Automation.Plan.Raw = updatedPlanRaw
+
+			patch := client.MergeFrom(zaproxy)
+
+			// Patch the ZAProxy again with new automation plan
+			Expect(k8sClient.Patch(ctx, updatedZAProxy, patch)).To(Succeed())
+
+			// Check the ConfigMap reflects the updated plan
+			updatedPlanStr, err := yaml.Marshal(currentPlan)
+			Expect(err).NotTo(HaveOccurred())
+
+			Eventually(func(g Gomega) {
+				cm := &v1.ConfigMap{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: ZAProxyName + "-config", Namespace: namespace}, cm)
+				g.Expect(err).To(Succeed())
+
+				expectedData := map[string]string{
+					"af-plan.yaml": string(updatedPlanStr),
+				}
+
 				g.Expect(cm.Data).To(Equal(expectedData))
 			}, timeout, interval).Should(Succeed())
 		})
