@@ -10,7 +10,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"gopkg.in/yaml.v2"
+	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -73,6 +75,17 @@ var _ = Describe("ZAProxy controller", func() {
 					"af-plan.yaml": string(planStr),
 				}
 				g.Expect(cm.Data).To(Equal(expectedData))
+			}, timeout, interval).Should(Succeed())
+		})
+
+		It("Should create pvc successfully", func() {
+			Eventually(func(g Gomega) {
+				pvc := &corev1.PersistentVolumeClaim{}
+				err := k8sClient.Get(ctx, types.NamespacedName{Name: ZAProxyName + "-pvc", Namespace: namespace}, pvc)
+				g.Expect(err).To(Succeed())
+
+				g.Expect(pvc.Spec.StorageClassName).To(Equal(&zaproxy.Spec.StorageClassName))
+				g.Expect(pvc.Spec.Resources.Requests[corev1.ResourceStorage]).To(Equal(resource.MustParse("1Gi")))
 			}, timeout, interval).Should(Succeed())
 		})
 
