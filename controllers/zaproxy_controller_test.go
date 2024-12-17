@@ -29,24 +29,24 @@ var _ = Describe("ZAProxy controller", func() {
 		interval = time.Millisecond * 250
 	)
 
+	var (
+		ctx       context.Context
+		namespace string
+		zaproxy   *zaproxyorgv1alpha1.ZAProxy
+	)
+
+	BeforeEach(func() {
+		ctx = context.Background()
+		namespace = fmt.Sprintf("test-namespace-%d-%d", time.Now().UnixNano(), GinkgoParallelProcess())
+
+		ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
+		Expect(k8sClient.Create(ctx, ns)).To(Succeed())
+
+		zaproxy = newZAProxy(ZAProxyName, namespace)
+		Expect(k8sClient.Create(ctx, zaproxy)).To(Succeed())
+	})
+
 	Context("When creating a ZAProxy", func() {
-		var (
-			ctx       context.Context
-			namespace string
-			zaproxy   *zaproxyorgv1alpha1.ZAProxy
-		)
-
-		BeforeEach(func() {
-			ctx = context.Background()
-			namespace = fmt.Sprintf("test-namespace-%d-%d", time.Now().UnixNano(), GinkgoParallelProcess())
-
-			ns := &corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: namespace}}
-			Expect(k8sClient.Create(ctx, ns)).To(Succeed())
-
-			zaproxy = newZAProxy(ZAProxyName, namespace)
-			Expect(k8sClient.Create(ctx, zaproxy)).To(Succeed())
-		})
-
 		It("Should reconcile a ZAProxy and create necessary resources", func() {
 			// Verify ConfigMap creation
 			Eventually(func(g Gomega) {
@@ -74,7 +74,9 @@ var _ = Describe("ZAProxy controller", func() {
 				g.Expect(service.Spec.Ports[0].Port).To(Equal(int32(8080)))
 			}, timeout, interval).Should(Succeed())
 		})
+	})
 
+	Context("When updating a ZAProxy", func() {
 		It("Should update the ConfigMap when ZAProxy is updated", func() {
 			// Prepare the expected updated ConfigMap data
 			var currentPlan map[string]interface{}
@@ -111,34 +113,10 @@ var _ = Describe("ZAProxy controller", func() {
 				g.Expect(cm.Data).To(Equal(expectedData))
 			}, timeout, interval).Should(Succeed())
 		})
+	})
 
+	Context("When deleting a ZAProxy", func() {
 		It("Should delete the ZAProxy and all associated resources", func() {
-			// Delete the ZAProxy
-			Expect(k8sClient.Delete(ctx, zaproxy)).To(Succeed())
-
-			// Verify ConfigMap deletion
-			Eventually(func(g Gomega) {
-				cm := &corev1.ConfigMap{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: ZAProxyName + "-config", Namespace: namespace}, cm)
-				g.Expect(err).To(HaveOccurred())
-			}, timeout, interval).Should(Succeed())
-
-			// Verify PVC deletion
-			Eventually(func(g Gomega) {
-				pvc := &corev1.PersistentVolumeClaim{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: ZAProxyName + "-pvc", Namespace: namespace}, pvc)
-				g.Expect(err).To(HaveOccurred())
-			}, timeout, interval).Should(Succeed())
-
-			// Verify Service deletion
-			Eventually(func(g Gomega) {
-				service := &corev1.Service{}
-				err := k8sClient.Get(ctx, types.NamespacedName{Name: ZAProxyName, Namespace: namespace}, service)
-				g.Expect(err).To(HaveOccurred())
-			}, timeout, interval).Should(Succeed())
-		})
-
-		It("Should clean up resources when ZAProxy is deleted", func() {
 			zaproxyLookupKey := types.NamespacedName{Name: ZAProxyName, Namespace: namespace}
 			createdZAProxy := &zaproxyorgv1alpha1.ZAProxy{}
 
@@ -166,7 +144,9 @@ var _ = Describe("ZAProxy controller", func() {
 			err = k8sClient.Get(ctx, types.NamespacedName{Name: ZAProxyName + "-pvc", Namespace: namespace}, pvc)
 			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
+	})
 
+	Context("When handling errors", func() {
 		It("Should handle errors when ZAProxy resource is not found", func() {
 			zaproxyLookupKey := types.NamespacedName{Name: "non-existent-zaproxy", Namespace: namespace}
 			createdZAProxy := &zaproxyorgv1alpha1.ZAProxy{}
@@ -175,7 +155,9 @@ var _ = Describe("ZAProxy controller", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(apierrors.IsNotFound(err)).To(BeTrue())
 		})
+	})
 
+	Context("When setting status conditions", func() {
 		It("Should set the correct status conditions on ZAProxy", func() {
 			zaproxyLookupKey := types.NamespacedName{Name: ZAProxyName, Namespace: namespace}
 			createdZAProxy := &zaproxyorgv1alpha1.ZAProxy{}
