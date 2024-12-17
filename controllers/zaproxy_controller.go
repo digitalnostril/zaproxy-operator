@@ -47,6 +47,7 @@ const (
 	typeAvailableZAProxy = "Available"
 	// typeDegradedZAProxy represents the status used when the custom resource is deleted and the finalizer operations are must to occur.
 	typeDegradedZAProxy = "Degraded"
+	zaproxyFinalizer    = "finalizer.zaproxy.org"
 )
 
 // ZAProxyReconciler reconciles a ZAProxy object
@@ -90,13 +91,36 @@ func (r *ZAProxyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 			return ctrl.Result{}, nil
 		}
 
-		return ctrl.Result{}, fmt.Errorf("Failed to get zaproxy %v: %w", req.NamespacedName, err)
+		return ctrl.Result{}, fmt.Errorf("failed to get zaproxy %v: %w", req.NamespacedName, err)
+	}
+
+	if zaproxy.GetDeletionTimestamp() != nil {
+		if containsString(zaproxy.GetFinalizers(), zaproxyFinalizer) {
+			// Run finalization logic for zaproxyFinalizer. If the finalization logic fails, don't remove the finalizer so that we can retry during the next reconciliation.
+			if err := r.finalizeZAProxy(ctx, zaproxy); err != nil {
+				return ctrl.Result{}, err
+			}
+
+			// Remove zaproxyFinalizer. Once all finalizers have been removed, the object will be deleted.
+			zaproxy.SetFinalizers(removeString(zaproxy.GetFinalizers(), zaproxyFinalizer))
+			if err := r.Update(ctx, zaproxy); err != nil {
+				return ctrl.Result{}, err
+			}
+		}
+		return ctrl.Result{}, nil
+	}
+
+	if !containsString(zaproxy.GetFinalizers(), zaproxyFinalizer) {
+		zaproxy.SetFinalizers(append(zaproxy.GetFinalizers(), zaproxyFinalizer))
+		if err := r.Update(ctx, zaproxy); err != nil {
+			return ctrl.Result{}, err
+		}
 	}
 
 	if zaproxy.Status.HasNoStatus() {
 		meta.SetStatusCondition(&zaproxy.Status.Conditions, metav1.Condition{Type: typeAvailableZAProxy, Status: metav1.ConditionUnknown, Reason: "Reconciling", Message: "Starting reconciliation"})
 		if err = r.Status().Update(ctx, zaproxy); err != nil {
-			return ctrl.Result{}, fmt.Errorf("Failed to update ZAProxy status %v: %w", req.NamespacedName, err)
+			return ctrl.Result{}, fmt.Errorf("failed to update ZAProxy status %v: %w", req.NamespacedName, err)
 		}
 
 		// Let's re-fetch the zaproxy Custom Resource after update the status
@@ -105,20 +129,20 @@ func (r *ZAProxyReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 		// your changes to the latest version and try again" which would re-trigger the reconciliation
 		// if we try to update it again in the following operations
 		if err := r.Get(ctx, req.NamespacedName, zaproxy); err != nil {
-			return ctrl.Result{}, fmt.Errorf("Failed to re-fetch zaproxy %v: %w", req.NamespacedName, err)
+			return ctrl.Result{}, fmt.Errorf("failed to re-fetch zaproxy %v: %w", req.NamespacedName, err)
 		}
 	}
 
 	if err := r.reconcileConfigMap(ctx, zaproxy); err != nil {
-		return ctrl.Result{}, r.setReconcileError(ctx, zaproxy, err, fmt.Sprintf("Failed to reconcile ConfigMap %v", req.NamespacedName))
+		return ctrl.Result{}, r.setReconcileError(ctx, zaproxy, err, fmt.Sprintf("failed to reconcile ConfigMap %v", req.NamespacedName))
 	}
 
 	if err := r.reconcilePVC(ctx, zaproxy); err != nil {
-		return ctrl.Result{}, r.setReconcileError(ctx, zaproxy, err, fmt.Sprintf("Failed to reconcile PVC %v", req.NamespacedName))
+		return ctrl.Result{}, r.setReconcileError(ctx, zaproxy, err, fmt.Sprintf("failed to reconcile PVC %v", req.NamespacedName))
 	}
 
 	if err := r.reconcileService(ctx, zaproxy); err != nil {
-		return ctrl.Result{}, r.setReconcileError(ctx, zaproxy, err, fmt.Sprintf("Failed to reconcile Service %v", req.NamespacedName))
+		return ctrl.Result{}, r.setReconcileError(ctx, zaproxy, err, fmt.Sprintf("failed to reconcile Service %v", req.NamespacedName))
 	}
 
 	log.Info("Reconciliation Complete", "Namespace", req.NamespacedName.Namespace, "Name", req.NamespacedName.Name)
@@ -131,12 +155,12 @@ func (r *ZAProxyReconciler) setReconcileSuccess(ctx context.Context, zaproxy *za
 	meta.SetStatusCondition(&zaproxy.Status.Conditions, metav1.Condition{
 		Type:    typeAvailableZAProxy,
 		Status:  metav1.ConditionTrue,
-		Reason:  "Reconciling",
+		Reason:  "Reconciled",
 		Message: message,
 	})
 
 	if updateErr := r.Status().Update(ctx, zaproxy); updateErr != nil {
-		return fmt.Errorf("Failed to update ZAProxy status %s/%s: %w", zaproxy.Namespace, zaproxy.Name, updateErr)
+		return fmt.Errorf("failed to update ZAProxy status %s/%s: %w", zaproxy.Namespace, zaproxy.Name, updateErr)
 	}
 
 	return nil
@@ -152,7 +176,7 @@ func (r *ZAProxyReconciler) setReconcileError(ctx context.Context, zaproxy *zapr
 	})
 
 	if updateErr := r.Status().Update(ctx, zaproxy); updateErr != nil {
-		return fmt.Errorf("Failed to update ZAProxy status %s/%s: %w", zaproxy.Namespace, zaproxy.Name, updateErr)
+		return fmt.Errorf("failed to update ZAProxy status %s/%s: %w", zaproxy.Namespace, zaproxy.Name, updateErr)
 	}
 
 	return fmt.Errorf(message+": %w", err)
@@ -169,10 +193,10 @@ func (r *ZAProxyReconciler) reconcileConfigMap(ctx context.Context, zaproxy *zap
 
 		configMap, err = r.configMapForZAProxy(zaproxy)
 		if err != nil {
-			return fmt.Errorf("Failed to define a new ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+			return fmt.Errorf("failed to define a new ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 		}
 		if err := r.Create(ctx, configMap); err != nil {
-			return fmt.Errorf("Failed to create new ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+			return fmt.Errorf("failed to create new ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 		}
 
 		log.Info("Successfully created new ConfigMap", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
@@ -180,19 +204,19 @@ func (r *ZAProxyReconciler) reconcileConfigMap(ctx context.Context, zaproxy *zap
 		return nil
 
 	} else if err != nil {
-		return fmt.Errorf("Failed to get ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+		return fmt.Errorf("failed to get ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 	} else {
 		// ConfigMap was found, check if it needs to be updated
 		updatedConfigMap, err := r.configMapForZAProxy(zaproxy)
 		if err != nil {
-			return fmt.Errorf("Failed to define updated ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+			return fmt.Errorf("failed to define updated ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 		}
 
 		if !reflect.DeepEqual(configMap.Data, updatedConfigMap.Data) {
 			// The current state is different from the desired state, update the ConfigMap
 			configMap.Data = updatedConfigMap.Data
 			if err := r.Update(ctx, configMap); err != nil {
-				return fmt.Errorf("Failed to update ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+				return fmt.Errorf("failed to update ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 			}
 			log.Info("Successfully updated ConfigMap", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
 		}
@@ -212,10 +236,10 @@ func (r *ZAProxyReconciler) reconcilePVC(ctx context.Context, zaproxy *zaproxyor
 
 		pvc, err = r.pvcForZAProxy(zaproxy)
 		if err != nil {
-			return fmt.Errorf("Failed to define a new PVC %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+			return fmt.Errorf("failed to define a new PVC %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 		}
 		if err := r.Create(ctx, pvc); err != nil {
-			return fmt.Errorf("Failed to create new PVC %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+			return fmt.Errorf("failed to create new PVC %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 		}
 
 		log.Info("Successfully created new PVC", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
@@ -223,7 +247,7 @@ func (r *ZAProxyReconciler) reconcilePVC(ctx context.Context, zaproxy *zaproxyor
 		return nil
 
 	} else if err != nil {
-		return fmt.Errorf("Failed to get PVC %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+		return fmt.Errorf("failed to get PVC %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 	}
 
 	return nil
@@ -239,10 +263,10 @@ func (r *ZAProxyReconciler) reconcileService(ctx context.Context, zaproxy *zapro
 
 		service, err = r.serviceForZAProxy(zaproxy)
 		if err != nil {
-			return fmt.Errorf("Failed to define a new Service %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+			return fmt.Errorf("failed to define a new Service %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 		}
 		if err := r.Create(ctx, service); err != nil {
-			return fmt.Errorf("Failed to create new Service %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+			return fmt.Errorf("failed to create new Service %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 		}
 
 		log.Info("Successfully created new Service", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
@@ -250,7 +274,7 @@ func (r *ZAProxyReconciler) reconcileService(ctx context.Context, zaproxy *zapro
 		return nil
 
 	} else if err != nil {
-		return fmt.Errorf("Failed to get Service %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+		return fmt.Errorf("failed to get Service %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 	}
 
 	return nil
@@ -346,7 +370,7 @@ func imageForZAProxy() (string, error) {
 	var imageEnvVar = "ZAPROXY_IMAGE"
 	image, found := os.LookupEnv(imageEnvVar)
 	if !found {
-		return "", fmt.Errorf("Unable to find %s environment variable with the image", imageEnvVar)
+		return "", fmt.Errorf("unable to find %s environment variable with the image", imageEnvVar)
 	}
 	return image, nil
 }
@@ -374,4 +398,60 @@ func (r *ZAProxyReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.ConfigMap{}).
 		Owns(&corev1.PersistentVolumeClaim{}).
 		Complete(r)
+}
+
+func (r *ZAProxyReconciler) finalizeZAProxy(ctx context.Context, zaproxy *zaproxyorgv1alpha1.ZAProxy) error {
+	log := log.FromContext(ctx)
+	log.Info("Finalizing ZAProxy", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
+
+	// Delete associated ConfigMap
+	cm := &corev1.ConfigMap{}
+	err := r.Get(ctx, types.NamespacedName{Name: zaproxy.Name + "-config", Namespace: zaproxy.Namespace}, cm)
+	if err == nil {
+		if err := r.Delete(ctx, cm); err != nil {
+			return fmt.Errorf("failed to delete ConfigMap %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+		}
+		log.Info("Successfully deleted ConfigMap", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
+	}
+
+	// Delete associated PVC
+	pvc := &corev1.PersistentVolumeClaim{}
+	err = r.Get(ctx, types.NamespacedName{Name: zaproxy.Name + "-pvc", Namespace: zaproxy.Namespace}, pvc)
+	if err == nil {
+		if err := r.Delete(ctx, pvc); err != nil {
+			return fmt.Errorf("failed to delete PVC %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+		}
+		log.Info("Successfully deleted PVC", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
+	}
+
+	// Delete associated Service
+	service := &corev1.Service{}
+	err = r.Get(ctx, types.NamespacedName{Name: zaproxy.Name, Namespace: zaproxy.Namespace}, service)
+	if err == nil {
+		if err := r.Delete(ctx, service); err != nil {
+			return fmt.Errorf("failed to delete Service %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+		}
+		log.Info("Successfully deleted Service", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
+	}
+
+	return nil
+}
+
+func containsString(slice []string, s string) bool {
+	for _, item := range slice {
+		if item == s {
+			return true
+		}
+	}
+	return false
+}
+
+func removeString(slice []string, s string) []string {
+	var result []string
+	for _, item := range slice {
+		if item != s {
+			result = append(result, item)
+		}
+	}
+	return result
 }
