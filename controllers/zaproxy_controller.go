@@ -25,6 +25,7 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v2"
+	kbatch "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/meta"
@@ -432,6 +433,32 @@ func (r *ZAProxyReconciler) finalizeZAProxy(ctx context.Context, zaproxy *zaprox
 			return fmt.Errorf("failed to delete Service %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
 		}
 		log.Info("Successfully deleted Service", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
+	}
+
+	// Delete associated Jobs
+	job := &kbatch.Job{}
+	err = r.Get(ctx, types.NamespacedName{Name: zaproxy.Name, Namespace: zaproxy.Namespace}, job)
+	if err == nil {
+		if err := r.Delete(ctx, job); err != nil {
+			return fmt.Errorf("failed to delete Job %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+		}
+		log.Info("Successfully deleted Job", "Namespace", zaproxy.Namespace, "Name", zaproxy.Name)
+	}
+
+	jobList := &kbatch.JobList{}
+	listOpts := []client.ListOption{
+		client.InNamespace(zaproxy.Namespace),
+		client.MatchingLabels(labelsForZAProxy(zaproxy.Name)),
+	}
+	if err := r.List(ctx, jobList, listOpts...); err != nil {
+		return fmt.Errorf("failed to list Jobs for ZAProxy %s/%s: %w", zaproxy.Namespace, zaproxy.Name, err)
+	}
+
+	for _, job := range jobList.Items {
+		if err := r.Delete(ctx, &job); err != nil {
+			return fmt.Errorf("failed to delete Job %s/%s: %w", job.Namespace, job.Name, err)
+		}
+		log.Info("Successfully deleted Job", "Namespace", job.Namespace, "Name", job.Name)
 	}
 
 	return nil

@@ -18,6 +18,7 @@ package controllers
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -89,6 +90,9 @@ var _ = BeforeSuite(func() {
 	}).SetupWithManager(k8sManager)
 	Expect(err).ToNot(HaveOccurred())
 
+	err = os.Setenv("ZAPROXY_IMAGE", "ghcr.io/zaproxy/zaproxy:stable")
+	Expect(err).NotTo(HaveOccurred())
+
 	go func() {
 		defer GinkgoRecover()
 		err = k8sManager.Start(ctx)
@@ -100,5 +104,8 @@ var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 	cancel()
 	err := testEnv.Stop()
+	Expect(err).NotTo(HaveOccurred())
+
+	err = os.Unsetenv("ZAPROXY_IMAGE")
 	Expect(err).NotTo(HaveOccurred())
 })
